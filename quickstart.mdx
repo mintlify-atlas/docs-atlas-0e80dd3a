@@ -1,80 +1,289 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Deploy Onyx locally in minutes using the one-line install script or Docker Compose."
+keywords: ["install", "deploy", "docker", "quickstart", "setup"]
 ---
 
-## Get started in three steps
+<Note>
+  **Requirements**: Docker Engine and Docker Compose 2.24.0+ must be installed. For standard mode, 10 GB of Docker memory and 32 GB of free disk space are recommended. A [lite mode](#deployment-modes) is available for lower-resource machines (4 GB RAM, 16 GB disk).
+</Note>
 
-Get your documentation site running locally and make your first customization.
+## One-line install
 
-### Step 1: Set up your local environment
+The fastest way to deploy Onyx is with the install script. It handles Docker setup, downloads configuration files, and starts all services:
+
+```bash
+curl -fsSL https://onyx.app/install_onyx.sh | bash
+```
+
+The script is interactive. It will:
+
+- Verify Docker and Docker Compose are installed (and install them on Linux if needed)
+- Check system resources
+- Ask which deployment mode you want (lite or standard)
+- Download `docker-compose.yml` and `env.template` from the Onyx GitHub repository
+- Generate a secure `USER_AUTH_SECRET`
+- Pull Docker images and start all containers
+- Wait for the service to become healthy and print the access URL
+
+### Install script options
+
+```bash
+# Standard install
+curl -fsSL https://onyx.app/install_onyx.sh | bash
+
+# Minimal deployment (no Vespa, Redis, or model servers)
+curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --lite
+
+# Enable Onyx Craft (AI-powered web app building)
+curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --include-craft
+
+# Non-interactive (CI/automation)
+curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --no-prompt
+
+# Stop running containers
+curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --shutdown
+
+# Remove all containers, volumes, and data
+curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --delete-data
+```
+
+---
+
+## Manual Docker Compose setup
+
+If you prefer to manage the deployment yourself, follow these steps.
+
+<Steps>
+  <Step title="Clone the repository and navigate to the deploy directory">
+    ```bash
+    git clone https://github.com/onyx-dot-app/onyx.git
+    cd onyx/deployment/docker_compose
+    ```
+  </Step>
+
+  <Step title="Create your .env file from the template">
+    Copy the environment template and open it for editing:
+
+    ```bash
+    cp env.template .env
+    ```
+
+    The most important variables to configure:
+
+    ```bash
+    # env.template — copy to .env before editing
+
+    # Onyx image version (edge = latest nightly, or pin to e.g. v0.21.1)
+    IMAGE_TAG=latest
+
+    # Authentication (basic = username/password)
+    AUTH_TYPE=basic
+
+    # Generate this with: openssl rand -hex 32
+    USER_AUTH_SECRET=""
+
+    # Postgres credentials
+    POSTGRES_USER=postgres
+    POSTGRES_PASSWORD=password
+
+    # File storage backend: "s3" (uses MinIO) or "postgres"
+    COMPOSE_PROFILES=s3-filestore
+    FILE_STORE_BACKEND=s3
+
+    # Enterprise Edition (requires license)
+    ENABLE_PAID_ENTERPRISE_EDITION_FEATURES=false
+    ```
+
+    <Warning>
+      Always set a strong, unique `USER_AUTH_SECRET` and `POSTGRES_PASSWORD` before running in production. Run `openssl rand -hex 32` to generate a secure secret.
+    </Warning>
+  </Step>
+
+  <Step title="Start all services">
+    ```bash
+    docker compose up -d
+    ```
+
+    This starts the following services defined in `docker-compose.yml`:
+
+    | Service | Image | Role |
+    |---|---|---|
+    | `api_server` | `onyxdotapp/onyx-backend` | FastAPI backend, port 8080 (internal) |
+    | `background` | `onyxdotapp/onyx-backend` | Celery workers (supervisord) |
+    | `web_server` | `onyxdotapp/onyx-web-server` | Next.js frontend |
+    | `nginx` | `nginx:1.25.5-alpine` | Reverse proxy, ports 80 and 3000 |
+    | `relational_db` | `postgres:15.2-alpine` | PostgreSQL database |
+    | `index` | `vespaengine/vespa:8.609.39` | Vespa vector database |
+    | `opensearch` | `opensearchproject/opensearch:3.4.0` | Full-text search index |
+    | `cache` | `redis:7.4-alpine` | Redis for task queues and caching |
+    | `inference_model_server` | `onyxdotapp/onyx-model-server` | Embedding and inference model server |
+    | `indexing_model_server` | `onyxdotapp/onyx-model-server` | Dedicated model server for indexing |
+    | `minio` | `minio/minio` | S3-compatible object storage (file uploads) |
+    | `code-interpreter` | `onyxdotapp/code-interpreter` | Sandboxed code execution |
+
+    The `api_server` runs database migrations automatically on startup (`alembic upgrade head`) before serving traffic.
+  </Step>
+
+  <Step title="Wait for services to become healthy">
+    Services have health checks configured. Monitor startup with:
+
+    ```bash
+    docker compose ps
+    docker compose logs -f api_server
+    ```
+
+    The `api_server` health check polls `http://localhost:8080/health` every 30 seconds. Full startup — including Vespa schema deployment and model loading — typically takes 2–5 minutes.
+  </Step>
+
+  <Step title="Open Onyx in your browser">
+    Once all containers are healthy, open:
+
+    ```
+    http://localhost
+    ```
+
+    or
+
+    ```
+    http://localhost:3000
+    ```
+
+    Both map to port 80 on the nginx container. Port 3000 is a convenience alias.
+
+    <Info>
+      In development mode (using `docker-compose.dev.yml`), the API server is also exposed directly at `http://localhost:8080`.
+    </Info>
+  </Step>
+
+  <Step title="Create your admin account">
+    On first visit, Onyx will direct you to create an account:
+
+    1. Navigate to `http://localhost/auth/signup`
+    2. Register with your email and a password
+    3. The first user to register automatically receives **admin privileges**
+
+    After signing in, the **Admin panel** is available at `http://localhost/admin`. From there you can:
+
+    - Configure LLM providers (OpenAI, Anthropic, Ollama, etc.)
+    - Add connectors to your knowledge sources
+    - Manage users and roles
+    - Create custom Agents
+  </Step>
+</Steps>
+
+---
+
+## Deployment modes
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Standard mode (recommended)">
+    Full deployment with all services running: Vespa vector database, Redis, model servers, and all Celery background workers. Enables connectors, RAG search, Deep Research, and hybrid retrieval.
+
+    **Minimum resources**: 10 GB Docker memory, 32 GB free disk.
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="Lite mode">
+    A minimal deployment without Vespa, Redis, or model servers. Suitable for low-resource environments or quick evaluation.
+
+    Lite mode disables: connectors, RAG search, and embedding-based retrieval.
+
+    Lite mode still supports: LLM chat, tools, user file uploads, Projects, Agent knowledge, code interpreter, and image generation.
+
+    **Minimum resources**: 4 GB Docker memory, 16 GB free disk.
+
+    ```bash
+    # Start with the install script
+    curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --lite
+
+    # Or with Docker Compose directly
+    docker compose -f docker-compose.yml -f docker-compose.onyx-lite.yml up -d
+    ```
+  </Accordion>
+
+  <Accordion title="Onyx Craft (optional)">
+    Enables AI-powered web app building within Onyx. Requires the `craft-latest` image tag and sets `ENABLE_CRAFT=true`. Craft is incompatible with lite mode.
+
+    ```bash
+    curl -fsSL https://onyx.app/install_onyx.sh | bash -s -- --include-craft
+    ```
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+---
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+## Environment variable reference
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+The `.env` file (copied from `env.template`) controls all runtime configuration. Key sections:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+<CodeGroup>
 
-### Step 3: Go live
+```bash Authentication
+# Auth method: basic, google_oauth, oidc, saml, disabled
+AUTH_TYPE=basic
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+# Required for basic auth — sign tokens for password reset and verification
+# Generate: openssl rand -hex 32
+USER_AUTH_SECRET=""
+
+# Restrict signups to specific email domains (comma-separated)
+# VALID_EMAIL_DOMAINS=yourcompany.com
+```
+
+```bash Database
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=password
+# POSTGRES_HOST defaults to "relational_db" (the Docker service name)
+POSTGRES_HOST=relational_db
+```
+
+```bash File storage
+# "s3" uses the bundled MinIO container; "postgres" needs no extra service
+FILE_STORE_BACKEND=s3
+COMPOSE_PROFILES=s3-filestore
+
+S3_ENDPOINT_URL=http://minio:9000
+S3_AWS_ACCESS_KEY_ID=minioadmin
+S3_AWS_SECRET_ACCESS_KEY=minioadmin
+S3_FILE_STORE_BUCKET_NAME=onyx-file-store-bucket
+```
+
+```bash Services
+# Internal service hostnames (match Docker Compose service names)
+VESPA_HOST=index
+REDIS_HOST=cache
+MODEL_SERVER_HOST=inference_model_server
+INDEXING_MODEL_SERVER_HOST=indexing_model_server
+INTERNAL_URL=http://api_server:8080
+```
+
+```bash LLM and logging
+# Optional: set a default API key for LLM providers
+# GEN_AI_API_KEY=
+
+LOG_LEVEL=info
+LOG_ONYX_MODEL_INTERACTIONS=False
+```
+
+</CodeGroup>
+
+For the full list of available variables, see the annotated [`env.template`](https://github.com/onyx-dot-app/onyx/blob/main/deployment/docker_compose/env.template) in the repository.
+
+---
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Docker deployment guide" icon="docker" href="/deployment/docker">
+    Production hardening, SSL/TLS setup, and Nginx configuration.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Learn how the services, workers, and data flow fit together.
+  </Card>
+  <Card title="LLM providers" icon="sparkles" href="/configuration/llm-providers">
+    Connect Onyx to OpenAI, Anthropic, Ollama, and others.
+  </Card>
+  <Card title="Connectors" icon="plug" href="/features/connectors">
+    Index documents from Slack, Confluence, GitHub, and 40+ sources.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

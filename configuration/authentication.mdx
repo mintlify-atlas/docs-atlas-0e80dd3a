@@ -1,0 +1,284 @@
+---
+title: 'Authentication'
+description: 'Configure how users sign in to Onyx: email/password, Google OAuth, OIDC, SAML, and more.'
+keywords: ['authentication', 'auth', 'oauth', 'saml', 'oidc', 'google', 'sso', 'api key', 'login']
+---
+
+Onyx supports several authentication modes. You configure auth by setting `AUTH_TYPE` in your `.env` file and, for SSO providers, supplying the relevant credentials. Only one primary auth type is active at a time.
+
+<Warning>
+  Changing `AUTH_TYPE` after users have already registered can cause existing sessions to break. Plan your auth strategy before your first deployment or coordinate a maintenance window before switching.
+</Warning>
+
+---
+
+## Auth types
+
+| `AUTH_TYPE` value | Description |
+|-------------------|-------------|
+| `basic` | Email address + password, managed by Onyx |
+| `google_oauth` | Sign in with Google |
+| `oidc` | OpenID Connect (Okta, Keycloak, Entra ID, and others) |
+| `saml` | SAML 2.0 (Okta, Azure AD, and others) |
+| `cloud` | Google OAuth and basic auth, used by Onyx Cloud |
+
+---
+
+## Email and password (basic)
+
+`AUTH_TYPE=basic` is the default. Users register with an email address and password that Onyx stores and manages.
+
+**Relevant `.env` settings**
+
+```bash
+AUTH_TYPE=basic
+USER_AUTH_SECRET=""          # Required — sign password-reset and verification tokens
+                             # Generate with: openssl rand -hex 32
+ENCRYPTION_KEY_SECRET=       # Recommended — encrypts credentials at rest
+```
+
+### Password requirements
+
+You can enforce password complexity rules with these variables:
+
+```bash
+PASSWORD_MIN_LENGTH=8
+PASSWORD_MAX_LENGTH=64
+PASSWORD_REQUIRE_UPPERCASE=false
+PASSWORD_REQUIRE_LOWERCASE=false
+PASSWORD_REQUIRE_DIGIT=false
+PASSWORD_REQUIRE_SPECIAL_CHAR=false
+```
+
+### Email verification
+
+To require new users to verify their email address before they can log in:
+
+```bash
+REQUIRE_EMAIL_VERIFICATION=true
+```
+
+Email verification requires SMTP to be configured. See [Email/SMTP configuration](#emailsmtp) below.
+
+### Invite-only vs. open registration
+
+By default, any user with a valid email address can create an account. To restrict registration:
+
+- **Domain allowlist:** Set `VALID_EMAIL_DOMAINS=yourdomain.com` (comma-separated for multiple domains). Only addresses from listed domains can register.
+- **Invite-only:** Enable `ENABLE_EMAIL_INVITES=true` and send invites from **Settings → Users → Invite Users**. Users without an invitation link cannot register.
+
+---
+
+## Google OAuth
+
+`AUTH_TYPE=google_oauth` delegates all authentication to Google. Users sign in with their Google account.
+
+<Steps>
+  <Step title="Create a Google OAuth app">
+    Go to [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**.
+
+    Set the application type to **Web application**. Add your Onyx domain to the **Authorized redirect URIs**:
+
+    ```
+    https://your-onyx-domain.com/auth/oauth/callback/google
+    ```
+  </Step>
+  <Step title="Copy client credentials">
+    After creating the app, Google shows a **Client ID** and **Client Secret**.
+  </Step>
+  <Step title="Set environment variables">
+    ```bash
+    AUTH_TYPE=google_oauth
+    OAUTH_CLIENT_ID=<your-google-client-id>
+    OAUTH_CLIENT_SECRET=<your-google-client-secret>
+    WEB_DOMAIN=https://your-onyx-domain.com
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` are accepted as aliases for backwards compatibility, but `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` are preferred.
+</Note>
+
+---
+
+## OpenID Connect (OIDC)
+
+`AUTH_TYPE=oidc` works with any OIDC-compliant identity provider: Okta, Keycloak, Microsoft Entra ID (Azure AD), Auth0, and others.
+
+<Steps>
+  <Step title="Create an OIDC application in your identity provider">
+    The exact steps vary by provider, but you will need to:
+    - Set the application type to **Web** or **OIDC Web App**
+    - Add the Onyx callback URL as an allowed redirect URI:
+      ```
+      https://your-onyx-domain.com/auth/oidc/callback
+      ```
+    - Note the **Client ID**, **Client Secret**, and the **OpenID configuration URL** (sometimes called the discovery URL or well-known URL).
+  </Step>
+  <Step title="Set environment variables">
+    ```bash
+    AUTH_TYPE=oidc
+    OAUTH_CLIENT_ID=<client-id-from-your-idp>
+    OAUTH_CLIENT_SECRET=<client-secret-from-your-idp>
+    OPENID_CONFIG_URL=https://your-idp.com/.well-known/openid-configuration
+    WEB_DOMAIN=https://your-onyx-domain.com
+    ```
+
+    **Okta example:**
+    ```bash
+    OPENID_CONFIG_URL=https://your-org.okta.com/oauth2/default/.well-known/openid-configuration
+    ```
+
+    **Microsoft Entra ID example:**
+    ```bash
+    OPENID_CONFIG_URL=https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration
+    ```
+  </Step>
+  <Step title="Optional: enable PKCE">
+    For improved security, enable PKCE (Proof Key for Code Exchange):
+    ```bash
+    OIDC_PKCE_ENABLED=true
+    ```
+  </Step>
+</Steps>
+
+### Scope overrides
+
+If your OIDC provider requires additional scopes (for example, to pass tokens to connector tools), specify them as a comma-separated list:
+
+```bash
+OIDC_SCOPE_OVERRIDE=openid,email,profile,custom_scope
+```
+
+---
+
+## SAML
+
+`AUTH_TYPE=saml` uses SAML 2.0. This requires a SAML configuration directory with your IdP metadata.
+
+<Steps>
+  <Step title="Set environment variables">
+    ```bash
+    AUTH_TYPE=saml
+    SAML_CONF_DIR=/app/onyx/configs/saml_config   # default path inside the container
+    WEB_DOMAIN=https://your-onyx-domain.com
+    ```
+  </Step>
+  <Step title="Place IdP metadata in the config directory">
+    Mount the SAML config directory into the backend container. At minimum, the directory must contain your IdP's metadata XML file. Refer to your IdP documentation for how to export the metadata.
+  </Step>
+  <Step title="Register the Onyx SP metadata with your IdP">
+    Your IdP needs the Onyx service provider metadata. The Onyx SP metadata endpoint is:
+    ```
+    https://your-onyx-domain.com/auth/saml/metadata
+    ```
+  </Step>
+</Steps>
+
+---
+
+## API key authentication
+
+API keys allow programmatic access to Onyx without a browser session. They are useful for integrations, bots, and scripts.
+
+### Creating an API key
+
+<Steps>
+  <Step title="Open API keys settings">
+    Go to **Settings → API Keys** (admin panel) or your personal **Profile → API Keys** for user-scoped keys.
+  </Step>
+  <Step title="Click Create API Key">
+    Give the key a descriptive name. Copy the key immediately—it will not be shown again.
+  </Step>
+</Steps>
+
+### Using an API key in requests
+
+Include the key as a Bearer token in the `Authorization` header:
+
+```bash
+curl https://your-onyx-domain.com/api/chat/send-message \
+  -H "Authorization: Bearer onyxk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Summarize our Q3 report"}'
+```
+
+<Note>
+  API keys are scoped to the user who created them and inherit that user's permissions. Admin-created keys under **Settings → API Keys** can be assigned to service accounts with specific roles.
+</Note>
+
+---
+
+## Anonymous access
+
+Anonymous access allows unauthenticated users to interact with a designated public assistant without logging in. This is disabled by default.
+
+To enable anonymous access, go to **Settings → Workspace Settings** and toggle on **Allow Anonymous Access**. You can then configure which assistant anonymous users see and what knowledge sources they have access to.
+
+<Warning>
+  Enabling anonymous access exposes your Onyx instance (and any documents the public assistant can access) to anyone who can reach your domain. Ensure your network access controls are appropriate before enabling this.
+</Warning>
+
+---
+
+## Session management
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SESSION_EXPIRE_TIME_SECONDS` | `604800` (7 days) | How long a session stays valid |
+| `AUTH_COOKIE_EXPIRE_TIME_SECONDS` | `604800` (7 days) | How long the auth cookie is valid in the browser |
+| `TRACK_EXTERNAL_IDP_EXPIRY` | `false` | Force re-auth when the identity provider token expires |
+
+---
+
+## User roles
+
+Onyx has five user-facing roles:
+
+| Role | Permissions |
+|------|-------------|
+| **Admin** | Full access to all admin settings, connectors, and user management |
+| **Global Curator** | Can manage all user groups they belong to |
+| **Curator** | Can manage specific user groups they have been assigned as curator |
+| **Basic** | Standard user — can chat, search, and use connectors shared with them |
+| **Limited** | Restricted access to a limited subset of API endpoints |
+
+Assign roles in **Settings → Users**. The first user to register automatically becomes an admin.
+
+---
+
+## Email/SMTP
+
+Several features require outbound email: email verification, password reset links, and invite emails. Configure SMTP with the following variables:
+
+```bash
+SMTP_SERVER=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=noreply@example.com
+SMTP_PASS=<smtp-password>
+EMAIL_FROM=noreply@example.com    # Defaults to SMTP_USER if not set
+```
+
+Alternatively, use SendGrid:
+
+```bash
+SENDGRID_API_KEY=SG....
+```
+
+<Tip>
+  Enable invite emails with `ENABLE_EMAIL_INVITES=true` after configuring SMTP. Admins can then send invite links directly from the Users page.
+</Tip>
+
+---
+
+## Rate limiting
+
+To protect auth endpoints from brute-force attacks, configure rate limiting:
+
+```bash
+RATE_LIMIT_WINDOW_SECONDS=60    # Time window in seconds
+RATE_LIMIT_MAX_REQUESTS=10      # Maximum requests per window per IP
+```
+
+Both variables must be set for rate limiting to activate.

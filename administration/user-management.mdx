@@ -1,0 +1,181 @@
+---
+title: 'User management'
+description: 'Invite users, assign roles, manage groups, and control access to Onyx from the Admin panel.'
+keywords: ['user management', 'invite users', 'roles', 'groups', 'SCIM', 'admin']
+---
+
+Onyx gives administrators full control over who can access the platform, what they can do, and which resources they can see. This page covers user roles, invitation methods, day-to-day user management, groups, and usage limits.
+
+## User roles
+
+Every Onyx user is assigned one of five roles. Role changes are admin-only and take effect immediately.
+
+<AccordionGroup>
+  <Accordion title="Admin">
+    Full access to all admin functionality. Admins can manage users, connectors, credentials, groups, assistants, and system settings across the entire deployment. There must always be at least one active Admin in the system.
+  </Accordion>
+
+  <Accordion title="Global Curator">
+    Can perform connector and document management actions for **all groups they are a member of**, without needing to be the designated Curator of each group. They cannot change user roles or access system-level settings.
+  </Accordion>
+
+  <Accordion title="Curator">
+    Can manage connectors and documents within the specific groups where they hold Curator status. Curators are assigned per-group by Admins. Outside their assigned groups, they have the same access as a Basic user.
+  </Accordion>
+
+  <Accordion title="Basic">
+    Standard user. Can search, chat, and use assistants they have visibility into. Cannot perform any admin actions.
+  </Accordion>
+
+  <Accordion title="Limited">
+    Restricted access to a subset of API endpoints. Useful for service accounts or read-only integrations that should not interact with the full platform surface.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Slack users (`slack_user`) and externally permissioned users (`ext_perm_user`) are system-managed roles assigned automatically. They do not have a web login and cannot be manually assigned.
+</Note>
+
+## Inviting users
+
+Onyx supports three ways to bring users onto the platform:
+
+<Tabs>
+  <Tab title="Email invite">
+    Send invitation emails directly from the Admin panel.
+
+    <Steps>
+      <Step title="Navigate to Users">
+        Go to **Admin panel → Users**.
+      </Step>
+      <Step title="Invite by email">
+        Enter one or more email addresses in the invite field and click **Invite**. Each address receives an email with a link to complete registration.
+      </Step>
+      <Step title="Monitor pending invites">
+        Invited users appear in the **Invited** tab until they accept and create their account.
+      </Step>
+    </Steps>
+
+    <Warning>
+      Bulk email invitations require a configured email provider. If email is not set up, invites are still recorded and users can be sent the signup link manually.
+    </Warning>
+  </Tab>
+
+  <Tab title="Domain allowlist">
+    Allow anyone with a company email address to self-register without an explicit invite.
+
+    <Steps>
+      <Step title="Open Configuration">
+        Go to **Admin panel → Settings → Workspace Settings**.
+      </Step>
+      <Step title="Set allowed domains">
+        Enter one or more email domains (e.g. `acme.com`). Any user signing up with a matching domain will be automatically approved.
+      </Step>
+    </Steps>
+
+    <Tip>
+      Domain allowlists are a good fit when your identity provider handles SSO and you want zero-friction onboarding for new employees.
+    </Tip>
+  </Tab>
+
+  <Tab title="Open registration">
+    Allow anyone to create an account without an invite or domain restriction. Enable this only in private or internal deployments where the sign-up URL is not publicly accessible.
+
+    Configure this under **Admin panel → Settings → Workspace Settings** by leaving domain restrictions empty and enabling open signup.
+  </Tab>
+</Tabs>
+
+## Managing users
+
+The **Users** page in the Admin panel lists all accepted users, pending invites, and Slack users. You can filter by role, status, and email.
+
+### Changing a user's role
+
+<Steps>
+  <Step title="Find the user">
+    Search by email on the **Users** page.
+  </Step>
+  <Step title="Open the role menu">
+    Click the role badge next to the user's name to open the role selector.
+  </Step>
+  <Step title="Select the new role">
+    Choose the target role. The change is saved immediately.
+  </Step>
+</Steps>
+
+<Warning>
+  An admin cannot demote their own account. At least one active Admin must remain in the system at all times.
+</Warning>
+
+### Deactivating and reactivating users
+
+Deactivating a user blocks their access without deleting their data or history.
+
+- **Deactivate**: Find the user → click **Deactivate**. The user's sessions are invalidated and they cannot log in.
+- **Reactivate**: Find the deactivated user → click **Activate**. The user can log in again immediately.
+
+<Note>
+  A user must be deactivated before they can be permanently deleted.
+</Note>
+
+### Deleting a user
+
+Permanently removes the user account. This action cannot be undone.
+
+<Steps>
+  <Step title="Deactivate first">
+    Deactivate the user account as described above.
+  </Step>
+  <Step title="Delete the account">
+    On the deactivated user's row, click **Delete**. Confirm the deletion in the dialog.
+  </Step>
+</Steps>
+
+### Removing a pending invite
+
+To cancel an invitation before the user accepts it, go to the **Invited** tab and click **Remove** next to the email address.
+
+### Exporting users
+
+Download a CSV of all users (email, role, and status) from the **Users** page using the **Download CSV** button.
+
+## Groups and teams
+
+Groups let you organize users and restrict which connectors, documents, and assistants each set of users can access.
+
+<Steps>
+  <Step title="Create a group">
+    Go to **Admin panel → Groups** and click **New Group**. Give the group a unique name.
+  </Step>
+  <Step title="Add users">
+    Open the group and use the **Add Users** panel to select users by email. Users can belong to multiple groups.
+  </Step>
+  <Step title="Assign a Curator (optional)">
+    Within a group, you can designate one or more members as Curators. Curators can manage connectors and documents scoped to that group. Click **Set Curator** next to a user's name.
+  </Step>
+  <Step title="Associate connectors and assistants">
+    When creating or editing a connector or assistant, set its **visibility** to one or more groups. Only members of those groups will see the connector's documents or the assistant in search.
+  </Step>
+</Steps>
+
+<Tip>
+  Groups are the primary mechanism for multi-team deployments. Create one group per team or department and assign connectors to match each team's data access requirements.
+</Tip>
+
+## SCIM provisioning (Enterprise Edition)
+
+Enterprise Edition deployments can automate user lifecycle management using SCIM 2.0. With SCIM enabled, your identity provider (e.g. Okta, Azure AD, Google Workspace) automatically provisions and deprovisions users and syncs group memberships into Onyx.
+
+To configure SCIM, navigate to **Admin panel → SCIM** and generate a SCIM bearer token to provide to your identity provider. Users and groups managed via SCIM are marked as synced in the user list and cannot be manually edited.
+
+## User usage limits
+
+Onyx enforces seat limits to match your license tier. When a seat limit is in effect:
+
+- Inviting new users checks available seats before the invite is recorded.
+- Reactivating a deactivated user checks available seats before the account is re-enabled.
+- The Admin panel displays the current seat count so you can track usage.
+
+<Note>
+  Trial tenants have a cap on the total number of email invites that can be sent. Upgrade to a paid plan to remove this restriction.
+</Note>

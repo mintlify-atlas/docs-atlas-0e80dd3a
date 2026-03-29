@@ -1,0 +1,209 @@
+---
+title: 'Monitoring & analytics'
+description: 'Track usage, review query history, monitor connector health, and observe system performance in Onyx.'
+keywords: ['monitoring', 'analytics', 'metrics', 'Prometheus', 'query history', 'connector health', 'token rate limits', 'Celery']
+---
+
+Onyx provides several layers of observability: usage analytics in the Admin panel, a Prometheus metrics endpoint for infrastructure monitoring, connector sync status, and chat feedback collection. This page explains each surface and how to use it.
+
+## Usage analytics (Enterprise Edition)
+
+The **Analytics** section of the Admin panel shows platform usage over time. The default lookback window is 30 days; you can set a custom date range.
+
+<CardGroup cols={2}>
+  <Card title="Query analytics" icon="chart-line">
+    Daily counts of total queries, thumbs-up feedback, and thumbs-down feedback across all users.
+  </Card>
+  <Card title="Active users" icon="users">
+    Daily count of unique active users, based on query activity.
+  </Card>
+  <Card title="Assistant analytics" icon="robot">
+    Per-assistant message counts and unique user counts over the selected time range.
+  </Card>
+  <Card title="OnyxBot analytics" icon="slack">
+    For Slack-connected deployments: daily query totals and auto-resolved query counts.
+  </Card>
+</CardGroup>
+
+## Query history
+
+The **Query History** page lets admins review all chat sessions across the deployment.
+
+<Steps>
+  <Step title="Open Query History">
+    Go to **Admin panel → Query History**.
+  </Step>
+  <Step title="Filter sessions">
+    Filter by date range or by feedback type (thumbs up / thumbs down) to find sessions of interest.
+  </Step>
+  <Step title="Inspect a session">
+    Click any session to see the full message thread, the assistant used, and any feedback the user submitted.
+  </Step>
+  <Step title="Export to CSV">
+    Click **Export** to generate a downloadable CSV of query history for the selected time range. Exports run as background tasks and appear in the exports list when ready.
+  </Step>
+</Steps>
+
+<Note>
+  Query history can be configured to anonymize or fully disable user attribution. If anonymization is enabled, all user emails are replaced with `anonymous@anonymous.invalid` in the history view and exports. If history is disabled, the Query History page is not accessible.
+</Note>
+
+## Chat feedback
+
+Users can rate individual responses with a thumbs up or thumbs down directly in the chat interface. Admins can see aggregate feedback counts in the Analytics section and filter query history by feedback type.
+
+Feedback signals help identify:
+
+- Assistants or connectors producing low-quality results
+- Topics where Onyx's answers are frequently unhelpful
+- Regression after configuration changes
+
+## Connector health
+
+The **Connectors** section of the Admin panel shows the current status of every connector.
+
+<AccordionGroup>
+  <Accordion title="Sync status">
+    Each connector displays its current state: **Running**, **Completed**, **Failed**, or **Paused**. The last sync time and the number of indexed documents are shown for each connector.
+  </Accordion>
+  <Accordion title="Error logs">
+    Failed connectors display the error encountered during the last sync attempt. Click into a connector to see detailed error messages and the affected document count.
+  </Accordion>
+  <Accordion title="Document counts">
+    Each connector shows how many documents have been indexed. Use this to verify that a new connector has fully synced or to detect unexpected drops in document count after a sync.
+  </Accordion>
+  <Accordion title="Indexing attempts">
+    The connector detail view lists recent indexing attempts with timestamps, durations, and outcomes. You can cancel an in-progress indexing attempt from this view.
+  </Accordion>
+</AccordionGroup>
+
+## System info panel
+
+The **System Info** page (Admin panel → System Info) provides a snapshot of the current deployment state, including service versions and configuration details useful for troubleshooting.
+
+## Prometheus metrics
+
+Onyx exposes Prometheus metrics at `GET /metrics` on the API server. All custom metrics use the `onyx_` prefix.
+
+### HTTP request metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `http_requests_total` | Counter | `method`, `status`, `handler` | Total request count |
+| `http_request_duration_seconds` | Histogram | `method`, `handler` | Request latency by handler |
+| `http_request_duration_highr_seconds` | Histogram | _(none)_ | High-resolution latency across all handlers |
+| `http_request_size_bytes` | Summary | `handler` | Incoming request content length |
+| `http_response_size_bytes` | Summary | `handler` | Outgoing response content length |
+| `http_requests_inprogress` | Gauge | `method`, `handler` | In-flight requests |
+| `onyx_api_slow_requests_total` | Counter | `method`, `handler`, `status` | Requests exceeding the slow request threshold (default 1 second) |
+
+Configure the slow request threshold with the `SLOW_REQUEST_THRESHOLD_SECONDS` environment variable.
+
+### Database pool metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `onyx_db_pool_checked_out` | Gauge | `engine` | Currently checked-out connections |
+| `onyx_db_pool_checked_in` | Gauge | `engine` | Idle connections in the pool |
+| `onyx_db_pool_overflow` | Gauge | `engine` | Overflow connections beyond configured pool size |
+| `onyx_db_pool_size` | Gauge | `engine` | Configured pool size |
+| `onyx_db_pool_checkout_total` | Counter | `engine` | Total connection checkouts |
+| `onyx_db_pool_checkin_total` | Counter | `engine` | Total connection checkins |
+| `onyx_db_pool_connections_created_total` | Counter | `engine` | Total new connections created |
+| `onyx_db_pool_invalidations_total` | Counter | `engine` | Total connection invalidations |
+| `onyx_db_pool_checkout_timeout_total` | Counter | `engine` | Total checkout timeouts |
+| `onyx_db_connections_held_by_endpoint` | Gauge | `handler`, `engine` | Connections currently held, by endpoint |
+| `onyx_db_connection_hold_seconds` | Histogram | `handler`, `engine` | Duration a connection is held per endpoint |
+
+The `engine` label is one of `sync`, `async`, or `readonly`.
+
+### Celery task metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `onyx_celery_task_started_total` | Counter | `task_name`, `queue` | Total tasks started |
+| `onyx_celery_task_completed_total` | Counter | `task_name`, `queue`, `outcome` | Total tasks completed (`outcome`: `success` or `failure`) |
+| `onyx_celery_task_duration_seconds` | Histogram | `task_name`, `queue` | Task execution duration |
+| `onyx_celery_tasks_active` | Gauge | `task_name`, `queue` | Currently executing tasks |
+| `onyx_celery_task_retried_total` | Counter | `task_name`, `queue` | Total task retries |
+| `onyx_celery_task_revoked_total` | Counter | `task_name` | Total cancelled tasks |
+| `onyx_celery_task_rejected_total` | Counter | `task_name` | Total tasks rejected by workers |
+
+### Indexing pipeline metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `onyx_indexing_task_started_total` | Counter | `task_name`, `source`, `tenant_id`, `cc_pair_id` | Indexing tasks started per connector |
+| `onyx_indexing_task_completed_total` | Counter | `task_name`, `source`, `tenant_id`, `cc_pair_id`, `outcome` | Indexing tasks completed per connector |
+
+### OpenSearch metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `onyx_opensearch_search_client_duration_seconds` | Histogram | `search_type` | End-to-end client-side search latency |
+| `onyx_opensearch_search_server_duration_seconds` | Histogram | `search_type` | Server-side search execution time |
+| `onyx_opensearch_search_total` | Counter | `search_type` | Total search requests sent to OpenSearch |
+| `onyx_opensearch_searches_in_progress` | Gauge | `search_type` | Currently in-flight searches |
+
+### Useful PromQL queries
+
+<CodeGroup>
+
+```promql P99 latency by endpoint
+histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))
+```
+
+```promql Slow requests per minute
+sum by (handler) (rate(onyx_api_slow_requests_total[5m])) * 60
+```
+
+```promql DB pool utilization (sync engine)
+onyx_db_pool_checked_out{engine="sync"} / (onyx_db_pool_size{engine="sync"} + 10) * 100
+```
+
+```promql Which endpoints hold DB connections longest
+histogram_quantile(0.99, sum by (handler, le) (rate(onyx_db_connection_hold_seconds_bucket{engine="sync"}[5m])))
+```
+
+```promql Celery task failure rate
+sum by (task_name) (rate(onyx_celery_task_completed_total{outcome="failure"}[5m]))
+```
+
+```promql OpenSearch P99 search latency
+histogram_quantile(0.99, sum by (search_type, le) (rate(onyx_opensearch_search_client_duration_seconds_bucket[5m])))
+```
+
+</CodeGroup>
+
+## Token rate limiting
+
+Token rate limits cap the number of LLM tokens a user or group can consume within a rolling time window. This prevents any single user or team from monopolizing the LLM budget.
+
+Rate limits are configured in **Admin panel → Token Rate Limits**.
+
+<Tabs>
+  <Tab title="User-level limits">
+    Apply a token budget that each individual user cannot exceed within the configured time window. This is a global limit that applies to all users equally.
+
+    Navigate to **Token Rate Limits → Users** and click **Add Limit**. Set the token count and the time period (e.g. 50,000 tokens per hour).
+  </Tab>
+  <Tab title="Group-level limits">
+    Apply a token budget to an entire group. All members of the group share the same pool. Navigate to **Token Rate Limits → User Groups**, select a group, and click **Add Limit**.
+
+    Group-level limits are additive with user-level limits. A user subject to both limits is restricted by whichever is hit first.
+  </Tab>
+</Tabs>
+
+<Note>
+  Token rate limits are an Enterprise Edition feature. Curators can view the rate limits for their assigned groups but cannot create or modify them.
+</Note>
+
+## Celery queue monitoring
+
+Onyx uses Celery background workers for connector syncing, document processing, and other async tasks. Worker types include the primary worker, docfetching, docprocessing, light, heavy, monitoring, and beat (scheduler).
+
+The `onyx_celery_tasks_active` and `onyx_celery_task_completed_total` metrics give a real-time view of queue activity per worker queue. High values for `onyx_celery_task_retried_total` or `onyx_celery_task_rejected_total` on a given queue can indicate a worker is overloaded or misconfigured.
+
+<Tip>
+  Use Grafana to visualize Celery metrics. Counter metrics should be plotted with `rate()` over a 5-minute window. Gauge metrics can be displayed as stat or time-series panels.
+</Tip>

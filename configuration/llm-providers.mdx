@@ -1,0 +1,298 @@
+---
+title: 'LLM Providers'
+description: 'Connect Onyx to OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, AWS Bedrock, Ollama, and any LiteLLM-compatible model.'
+keywords: ['llm', 'openai', 'anthropic', 'azure', 'bedrock', 'ollama', 'gemini', 'model', 'provider']
+---
+
+Onyx routes all chat, search summarization, and fast inline tasks through one or more LLM providers that you configure. You can set different models for different roles—a powerful model for chat, a faster one for query understanding, and a locally hosted model for sensitive workloads.
+
+## Adding a provider
+
+<Steps>
+  <Step title="Open LLM settings">
+    In the Onyx admin panel, go to **Settings → LLM Providers**.
+  </Step>
+  <Step title="Choose a provider type">
+    Click **Add Provider** and select a provider from the list. Onyx ships built-in support for OpenAI, Anthropic, Azure OpenAI, Google Vertex AI, Amazon Bedrock, Ollama, LM Studio, OpenRouter, and LiteLLM Proxy.
+  </Step>
+  <Step title="Enter credentials">
+    Fill in the API key (and any provider-specific fields such as base URL, region, or deployment name). Each provider section below lists exactly what is required.
+  </Step>
+  <Step title="Select models">
+    After saving the provider, Onyx fetches the available model list. Mark the models you want to expose to users as **visible**, then set the **default model** for that provider.
+  </Step>
+  <Step title="Assign model roles">
+    On the main LLM Providers page, designate which configured provider+model acts as the **default chat model**, the **fast model** (used for query rewriting and intent detection), and the **embedding model** (used during document indexing).
+  </Step>
+</Steps>
+
+<Note>
+  Only admins with access to **Settings → LLM Providers** can add or change providers. Changing the embedding model triggers a full reindex of all documents.
+</Note>
+
+---
+
+## Supported providers
+
+<Tabs>
+  <Tab title="OpenAI">
+    ### ChatGPT (OpenAI)
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `openai` |
+    | **Required** | API key |
+    | **Optional** | Custom base URL (for proxies) |
+
+    Obtain your API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+
+    **Recommended models**
+
+    | Role | Model |
+    |------|-------|
+    | Default chat | `gpt-5.4` |
+    | Fast model | `gpt-5.2` |
+
+    **Example configuration**
+
+    ```text
+    API Key: sk-proj-...
+    ```
+
+    Onyx automatically fetches the full list of available chat completion models from OpenAI. Timestamped model variants are hidden by default to keep the selection list clean.
+  </Tab>
+
+  <Tab title="Anthropic">
+    ### Claude (Anthropic)
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `anthropic` |
+    | **Required** | API key |
+
+    Obtain your API key from [console.anthropic.com](https://console.anthropic.com).
+
+    **Recommended models**
+
+    | Role | Model |
+    |------|-------|
+    | Default chat | `claude-opus-4-6` |
+    | Fast model | `claude-sonnet-4-6` |
+
+    **Example configuration**
+
+    ```text
+    API Key: sk-ant-api03-...
+    ```
+
+    Available models include `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-opus-4-5`, and `claude-sonnet-4-5`. Deprecated Claude 2 and Claude Instant models are excluded automatically.
+  </Tab>
+
+  <Tab title="Azure OpenAI">
+    ### Azure OpenAI
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `azure` |
+    | **Required** | API key, Azure endpoint, API version, deployment name |
+
+    Azure OpenAI requires a deployment name rather than a model name because models are pre-deployed in your Azure subscription.
+
+    **Example configuration**
+
+    ```text
+    API Key:         <your Azure OpenAI key>
+    Azure Endpoint:  https://my-resource.openai.azure.com/
+    API Version:     2024-02-01
+    Deployment Name: gpt-4o-deployment
+    ```
+
+    <Note>
+      The deployment name you enter must match exactly the deployment name in Azure AI Foundry. You can create multiple Onyx providers—one per deployment—to expose different Azure-deployed models.
+    </Note>
+  </Tab>
+
+  <Tab title="Google Vertex AI">
+    ### Google Vertex AI
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `vertex_ai` |
+    | **Required** | GCP credentials JSON file, project location |
+
+    Upload your GCP service account credentials JSON file and specify the Vertex AI region (e.g. `us-central1`).
+
+    **Recommended models**
+
+    | Role | Model |
+    |------|-------|
+    | Default chat | `gemini-3-pro-preview` |
+    | Fast model | `gemini-3-flash-preview` |
+
+    **Example configuration**
+
+    ```text
+    Credentials File: /path/to/service-account.json
+    Location:         us-central1
+    ```
+
+    Onyx exposes the full Vertex AI model catalog including Gemini, Claude (via Vertex), Llama, and Mistral models hosted on Google Cloud.
+  </Tab>
+
+  <Tab title="AWS Bedrock">
+    ### Amazon Bedrock
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `bedrock` |
+    | **Required** | AWS access key ID, AWS secret access key, AWS region |
+
+    **Example configuration**
+
+    ```text
+    AWS Access Key ID:     AKIAIOSFODNN7EXAMPLE
+    AWS Secret Access Key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    AWS Region:            us-east-1
+    ```
+
+    Onyx fetches the available Bedrock model list directly from AWS. This includes Anthropic Claude, Amazon Titan, Meta Llama, Mistral, and Cohere models that you have enabled in your AWS account.
+
+    <Tip>
+      If your Onyx deployment runs on EC2 or ECS with an IAM instance role, you can use IAM authentication instead of static keys. Set `USE_IAM_AUTH=true` in your environment and leave the key fields empty.
+    </Tip>
+  </Tab>
+
+  <Tab title="Ollama">
+    ### Ollama (self-hosted)
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `ollama_chat` |
+    | **Required** | Base URL of your Ollama server |
+    | **Optional** | API key (if your Ollama instance requires one) |
+
+    Ollama lets you run open-weight models locally. Onyx queries your Ollama server for its list of pulled models.
+
+    **Example configuration**
+
+    ```text
+    Base URL: http://ollama-host:11434
+    ```
+
+    Pull models on your Ollama server before adding the provider in Onyx:
+
+    ```bash
+    ollama pull llama3.3
+    ollama pull nomic-embed-text
+    ```
+
+    After saving the provider, Onyx will automatically list all models that Ollama reports as available.
+
+    <Note>
+      The Ollama server must be network-accessible from the Onyx backend container. If both run on the same host via Docker Compose, use the Docker gateway IP or the service name defined in your compose file.
+    </Note>
+  </Tab>
+
+  <Tab title="LM Studio">
+    ### LM Studio
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `lm_studio` |
+    | **Required** | Base URL of your LM Studio server |
+    | **Optional** | API key |
+
+    LM Studio exposes an OpenAI-compatible local server. Start the local server in LM Studio and point Onyx at it.
+
+    **Example configuration**
+
+    ```text
+    Base URL: http://localhost:1234/v1
+    ```
+  </Tab>
+
+  <Tab title="OpenRouter">
+    ### OpenRouter
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `openrouter` |
+    | **Required** | API key |
+
+    OpenRouter provides a unified API that routes to hundreds of models from different providers.
+
+    **Recommended models**
+
+    | Model | Display name |
+    |-------|--------------|
+    | `z-ai/glm-4.7` | GLM 4.7 (default) |
+    | `deepseek/deepseek-v3.2` | DeepSeek V3.2 |
+    | `qwen/qwen3-235b-a22b-2507` | Qwen3 235B A22B Instruct 2507 |
+    | `moonshotai/kimi-k2-0905` | Kimi K2 0905 |
+
+    **Example configuration**
+
+    ```text
+    API Key: sk-or-v1-...
+    ```
+  </Tab>
+
+  <Tab title="LiteLLM Proxy">
+    ### LiteLLM Proxy
+
+    | Field | Value |
+    |-------|-------|
+    | **Provider name** (internal) | `litellm_proxy` |
+    | **Required** | Base URL of your LiteLLM proxy server |
+    | **Optional** | API key |
+
+    If you run a self-managed LiteLLM proxy in front of multiple providers, point Onyx at it. Onyx will query the proxy for its model list.
+
+    **Example configuration**
+
+    ```text
+    Base URL: http://litellm-proxy:4000
+    API Key:  sk-...
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Model roles
+
+Onyx uses models in three distinct roles. Each role can be assigned to any configured provider and model.
+
+<AccordionGroup>
+  <Accordion title="Default chat model">
+    Used for all user-facing conversations, document Q&A, and assistant responses. Choose the most capable model you are comfortable paying for.
+
+    **Recommended:** `gpt-5.4`, `claude-opus-4-6`, or `gemini-3-pro-preview`
+  </Accordion>
+  <Accordion title="Fast model">
+    Used for latency-sensitive background steps: query rewriting, intent classification, and determining whether a document is relevant to a question. Should be a smaller, faster, cheaper model.
+
+    **Recommended:** `gpt-5.2`, `claude-sonnet-4-6`, or `gemini-3-flash-preview`
+  </Accordion>
+  <Accordion title="Embedding model">
+    Used at indexing time to convert document chunks into vector representations, and at search time to embed the user's query. Changing this model requires re-indexing all documents.
+
+    Embeddings can be generated by a locally hosted model server (the default for self-hosted Onyx) or by an API-based model. Configure the embedding model in **Settings → Model Configuration**.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Using any LiteLLM-compatible provider
+
+Onyx routes all LLM calls through [LiteLLM](https://docs.litellm.ai), which supports over 100 providers. If the provider you need is not listed in the Onyx admin UI, use the **LiteLLM Proxy** provider type and point it at a self-managed LiteLLM proxy that you have configured for your target provider.
+
+<Tip>
+  You can also set `LITELLM_CUSTOM_ERROR_MESSAGE_MAPPINGS` in your `.env` file to translate provider-specific error strings into user-friendly messages shown in the chat UI.
+</Tip>
+
+---
+
+## Contextual RAG and fast model usage
+
+When **Contextual RAG** is enabled (`ENABLE_CONTEXTUAL_RAG=true`), Onyx uses an additional LLM call per document chunk during indexing to generate context summaries. This uses the fast model by default (`gpt-4o-mini`). Enable this feature only if you are comfortable with the additional API cost and indexing latency.

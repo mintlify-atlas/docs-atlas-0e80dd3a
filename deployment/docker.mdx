@@ -1,0 +1,267 @@
+---
+title: "Docker Compose"
+description: "Deploy Onyx on a single host using Docker Compose. Covers guided install, manual setup, service overview, and production hardening."
+keywords: ["docker", "docker compose", "self-hosted", "onyx deploy"]
+---
+
+## Requirements
+
+<AccordionGroup>
+  <Accordion title="Software">
+    - Docker 20.10 or later
+    - Docker Compose v2 (the `docker compose` plugin, not the standalone `docker-compose` binary)
+  </Accordion>
+  <Accordion title="Recommended hardware">
+    | Resource | Minimum | Recommended |
+    |----------|---------|-------------|
+    | CPU | 4 cores | 8+ cores |
+    | RAM | 16 GB | 32 GB |
+    | Disk | 50 GB | 200 GB (SSD) |
+
+    Vespa and the embedding model servers are the most memory-intensive components. Allocate additional RAM if you plan to index large document sets.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Quickstart
+
+The guided install script is the fastest way to get Onyx running. It downloads the Compose files, prompts for basic settings, and starts all services.
+
+```bash
+curl -fsSL https://onyx.app/install_onyx.sh | bash
+```
+
+The script creates an `onyx_data/` directory for configuration files. Application data (chats, users, indexed documents) is stored in named Docker volumes managed by Docker itself.
+
+<Tip>
+To include the optional Onyx Craft (AI-powered app builder) add-on, run the install script with `--include-craft`.
+</Tip>
+
+**Manage the deployment after install:**
+
+| Action | Command |
+|--------|---------|
+| Shut down without data loss | `./install.sh --shutdown` |
+| Delete all data | `./install.sh --delete-data` |
+| Upgrade to latest | `./install.sh --shutdown` then re-run `./install.sh` |
+
+---
+
+## Manual setup
+
+Use these steps if you prefer to manage the Compose files directly.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/onyx-dot-app/onyx.git
+    cd onyx/deployment/docker_compose
+    ```
+  </Step>
+  <Step title="Create your environment file">
+    ```bash
+    cp env.template .env
+    ```
+  </Step>
+  <Step title="Edit .env">
+    Open `.env` and configure the values relevant to your deployment. The most important variables are near the top of the file:
+
+    ```bash
+    # Version to deploy. Use "latest" to always pull the newest build.
+    IMAGE_TAG=latest
+
+    # Authentication method: basic | google_oauth | oidc | saml
+    AUTH_TYPE=basic
+
+    # Secret used to sign password-reset and verification tokens.
+    # Generate with: openssl rand -hex 32
+    USER_AUTH_SECRET=""
+
+    # Set to restrict sign-ups to specific email domains (comma-separated)
+    # VALID_EMAIL_DOMAINS=
+
+    # Postgres credentials
+    POSTGRES_USER=postgres
+    POSTGRES_PASSWORD=password
+
+    # File store backend: "s3" (MinIO, default) or "postgres"
+    FILE_STORE_BACKEND=s3
+    COMPOSE_PROFILES=s3-filestore
+
+    # Enterprise Edition (requires a paid license)
+    ENABLE_PAID_ENTERPRISE_EDITION_FEATURES=false
+    ```
+  </Step>
+  <Step title="Start all services">
+    ```bash
+    docker compose up -d
+    ```
+
+    On first start, Onyx runs Alembic database migrations before the API server becomes available. Allow 2–3 minutes for all health checks to pass.
+  </Step>
+  <Step title="Open Onyx">
+    Navigate to [http://localhost:3000](http://localhost:3000). The nginx reverse proxy also listens on port 80.
+  </Step>
+</Steps>
+
+---
+
+## Services
+
+The following services are defined in `docker-compose.yml`:
+
+| Service | Image | Role |
+|---------|-------|------|
+| `api_server` | `onyxdotapp/onyx-backend:latest` | FastAPI backend; runs Alembic migrations on startup |
+| `background` | `onyxdotapp/onyx-backend:latest` | Celery workers (document fetching, indexing, pruning) |
+| `web_server` | `onyxdotapp/onyx-web-server:latest` | Next.js frontend |
+| `inference_model_server` | `onyxdotapp/onyx-model-server:latest` | Serves embedding/re-rank models for search |
+| `indexing_model_server` | `onyxdotapp/onyx-model-server:latest` | Dedicated model server for the indexing pipeline |
+| `relational_db` | `postgres:15.2-alpine` | Primary relational database |
+| `index` | `vespaengine/vespa:8.609.39` | Vector and keyword search engine |
+| `opensearch` | `opensearchproject/opensearch:3.4.0` | Full-text search (keyword) index |
+| `cache` | `redis:7.4-alpine` | Celery broker and application cache |
+| `minio` | `minio/minio:RELEASE.2025-07-23T15-54-02Z-cpuv1` | S3-compatible file store (profile: `s3-filestore`) |
+| `nginx` | `nginx:1.25.5-alpine` | Reverse proxy; exposes ports 80 and 3000 |
+| `code-interpreter` | `onyxdotapp/code-interpreter:latest` | Sandboxed Python execution for Onyx Craft |
+
+<Note>
+`minio` only starts when `COMPOSE_PROFILES=s3-filestore` is set in your `.env`. Set `FILE_STORE_BACKEND=postgres` and remove `s3-filestore` from `COMPOSE_PROFILES` to use PostgreSQL for file storage instead, which eliminates the MinIO dependency.
+</Note>
+
+---
+
+## Common commands
+
+```bash
+# Start all services in the background
+docker compose up -d
+
+# Stop all services (data is preserved in volumes)
+docker compose down
+
+# Follow logs for all services
+docker compose logs -f
+
+# Follow logs for a single service
+docker compose logs -f api_server
+
+# List running containers and health status
+docker compose ps
+
+# Pull updated images then restart
+docker compose pull && docker compose up -d
+```
+
+---
+
+## Deployment variants
+
+<CodeGroup>
+
+```bash standard
+# Default deployment — all services including Vespa, OpenSearch, and MinIO
+docker compose up -d
+```
+
+```bash lite
+# Onyx Lite — no Vespa, no Redis, no model servers, no background workers.
+# Chat, user file uploads, and Projects still work. Connectors and RAG are disabled.
+docker compose -f docker-compose.yml -f docker-compose.onyx-lite.yml up -d
+```
+
+```bash production-https
+# Production with Let's Encrypt TLS.
+# Requires DOMAIN to be set in .env.nginx and DNS pointing to this host.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+</CodeGroup>
+
+---
+
+## Lite mode
+
+`docker-compose.onyx-lite.yml` is a Compose overlay that disables the resource-heavy services:
+
+- Vespa (`index`) and both model servers are moved to the `vectordb` / `inference` profiles.
+- Redis (`cache`) is moved to the `redis` profile; PostgreSQL handles caching instead.
+- OpenSearch is moved to the `opensearch` profile.
+- MinIO is moved to the `s3-filestore` profile; PostgreSQL handles file storage instead.
+- The `background` Celery worker is moved to the `background` profile; the API server handles background tasks directly via FastAPI `BackgroundTasks`.
+
+The result is a two-container deployment (PostgreSQL + api_server + web_server + nginx) suitable for teams that only need LLM chat and do not require connector-based document indexing.
+
+To selectively re-enable services in lite mode, add the relevant profile:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.onyx-lite.yml \
+  --profile redis --profile vectordb up -d
+```
+
+---
+
+## Production setup
+
+`docker-compose.prod.yml` adds TLS termination via Let's Encrypt. Before using it:
+
+<Steps>
+  <Step title="Configure your domain">
+    Set `DOMAIN` in `.env.nginx` to your fully qualified domain name (e.g., `onyx.example.com`). Ensure DNS is pointing to the host's public IP.
+  </Step>
+  <Step title="Harden the environment file">
+    Change default Postgres credentials, set a strong `USER_AUTH_SECRET`, and set `AUTH_TYPE` to a production method such as `oidc`.
+  </Step>
+  <Step title="Remove internal port exposures">
+    In production, only nginx should be reachable from outside. The ports for `api_server`, `relational_db`, `index`, `cache`, and `minio` are commented out in `docker-compose.yml` by default — keep them that way.
+  </Step>
+  <Step title="Start the production stack">
+    ```bash
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+    ```
+
+    The `certbot` service runs alongside nginx and automatically renews certificates every 12 hours.
+  </Step>
+</Steps>
+
+<Warning>
+Never expose the `relational_db` or `index` ports to the public internet. The default `docker-compose.yml` keeps those ports commented out; verify this before deploying to a cloud host.
+</Warning>
+
+---
+
+## Upgrading
+
+Onyx follows SemVer and maintains backwards compatibility across minor versions.
+
+```bash
+# Bring down the running stack
+./install.sh --shutdown
+# or
+docker compose down
+
+# Pull the latest images
+docker compose pull
+
+# Restart
+docker compose up -d
+```
+
+If you pin a specific version, update `IMAGE_TAG` in `.env` before pulling.
+
+---
+
+## GPU support
+
+The model servers support NVIDIA GPUs via the `nvidia-container-toolkit`. To enable, uncomment the `deploy.resources.reservations` block in the `inference_model_server` and `indexing_model_server` service definitions in `docker-compose.yml`:
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+```

@@ -1,0 +1,334 @@
+---
+title: "Architecture"
+description: "How Onyx's backend, frontend, search layer, and background workers fit together."
+keywords: ["architecture", "backend", "vespa", "celery", "fastapi", "postgres", "redis", "next.js"]
+---
+
+Onyx is a multi-service application composed of a FastAPI backend, a Next.js frontend, a Vespa vector database, PostgreSQL, Redis, and a fleet of Celery background workers. All services are orchestrated with Docker Compose (or Kubernetes for production deployments).
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| **Backend API** | Python 3.11, FastAPI, SQLAlchemy, Alembic |
+| **Frontend** | Next.js 15+, React 18, TypeScript, Tailwind CSS |
+| **Relational database** | PostgreSQL 15 |
+| **Vector database** | Vespa 8.609 |
+| **Full-text search** | OpenSearch 3.4 |
+| **Task queue / cache** | Redis 7.4 |
+| **Background workers** | Celery (thread-pool based) |
+| **Object storage** | MinIO (S3-compatible) |
+| **LLM integration** | LiteLLM, LangChain |
+| **Auth** | OAuth2, OIDC, SAML, basic auth |
+
+---
+
+## Service topology
+
+The following diagram shows how the services communicate at runtime:
+
+```
+                        ┌─────────────────────────────────┐
+                        │          nginx (port 80)         │
+                        │       nginx:1.25.5-alpine        │
+                        └──────────────┬──────────────────┘
+                                       │
+                 ┌─────────────────────┴─────────────────────┐
+                 │                                           │
+        ┌────────▼───────┐                       ┌──────────▼────────┐
+        │   api_server   │                       │    web_server     │
+        │  FastAPI :8080 │                       │  Next.js :3000    │
+        │ onyx-backend   │                       │ onyx-web-server   │
+        └────────┬───────┘                       └───────────────────┘
+                 │
+     ┌───────────┼───────────────────────────┐
+     │           │                           │
+┌────▼────┐ ┌───▼────┐ ┌──────────┐ ┌───────▼────────┐
+│postgres │ │ Vespa  │ │OpenSearch│ │  Redis (cache) │
+│  :5432  │ │ index  │ │          │ │  redis:7.4     │
+│  :15.2  │ │ :8081  │ │  :9200   │ │                │
+└─────────┘ └────────┘ └──────────┘ └───────┬────────┘
+                                             │
+                                    ┌────────▼────────┐
+                                    │   background    │
+                                    │  Celery workers │
+                                    │  (supervisord)  │
+                                    └────────┬────────┘
+                                             │
+                            ┌────────────────┼─────────────────┐
+                            │                │                 │
+                   ┌────────▼──────┐  ┌──────▼───────┐  ┌─────▼──────────────┐
+                   │  inference_   │  │  indexing_   │  │       minio        │
+                   │ model_server  │  │ model_server │  │  S3 file storage   │
+                   │    :9000      │  │    :9000     │  │    :9000/:9001     │
+                   └───────────────┘  └──────────────┘  └────────────────────┘
+```
+
+---
+
+## Core services
+
+### API server (`api_server`)
+
+The `api_server` is the central FastAPI application. It handles:
+
+- All HTTP requests routed through nginx (internal port 8080)
+- User authentication and session management
+- Chat completions, streaming responses, and LLM interactions
+- Connector management and credential storage
+- Document retrieval from Vespa and OpenSearch
+- Running database migrations via Alembic on startup
+
+The backend is organized into these packages:
+
+```
+backend/
+├── onyx/
+│   ├── auth/            # Authentication & authorization
+│   ├── chat/            # Chat functionality & LLM interactions
+│   ├── connectors/      # Data source connectors (40+ integrations)
+│   ├── db/              # Database models & operations
+│   ├── document_index/  # Vespa integration
+│   ├── llm/             # LLM provider integrations (via LiteLLM)
+│   └── server/          # API endpoints & routers
+├── ee/                  # Enterprise Edition features
+└── alembic/             # Database migrations
+```
+
+### Web server (`web_server`)
+
+The `web_server` is the Next.js 15 frontend. It proxies API calls to the `api_server` via the internal Docker network (`http://api_server:8080`). The nginx service routes browser traffic to either the frontend or the API based on path.
+
+### PostgreSQL (`relational_db`)
+
+PostgreSQL 15 stores all relational data: users, connectors, credentials, chat sessions, document metadata, and Celery task state. The schema is managed with Alembic migrations.
+
+The `api_server` runs `alembic upgrade head` automatically on every startup before accepting traffic.
+
+### Vespa vector database (`index`)
+
+Vespa stores document chunks and their embeddings. It powers Onyx's hybrid retrieval — combining dense vector similarity search with BM25 keyword matching. Vespa is the backbone of the RAG pipeline.
+
+<Note>
+  The Docker Compose service for Vespa is named `index` (not `vespa`) because Vespa imposes restrictions on the container hostname format used in its internal URL scheme.
+</Note>
+
+### OpenSearch (`opensearch`)
+
+OpenSearch provides an additional full-text search layer alongside Vespa. Enabled by default (`OPENSEARCH_FOR_ONYX_ENABLED=true`). It can be disabled by setting `OPENSEARCH_FOR_ONYX_ENABLED=false` in your `.env`.
+
+### Redis (`cache`)
+
+Redis 7.4 serves as both the Celery message broker and a general-purpose cache for ephemeral state, inter-process coordination, and locking. The `cache` service uses ephemeral storage (no persistence) to keep it lightweight.
+
+### Model servers
+
+Two dedicated model servers run the same `onyxdotapp/onyx-model-server` image:
+
+- **`inference_model_server`**: Handles embedding and reranking at query time
+- **`indexing_model_server`**: Runs with `INDEXING_ONLY=True`, dedicated to embedding documents during indexing to avoid resource contention
+
+Both expose a FastAPI application on port 9000 internally. Models are cached in Docker volumes (`model_cache_huggingface`, `indexing_huggingface_model_cache`) to avoid re-downloading on restart.
+
+GPU support is available by uncommenting the `deploy.resources` section in `docker-compose.yml` (requires `nvidia-container-toolkit`).
+
+### MinIO (`minio`)
+
+MinIO provides S3-compatible object storage for user-uploaded files. Activated with the `s3-filestore` Docker Compose profile (set via `COMPOSE_PROFILES=s3-filestore`). Alternatively, set `FILE_STORE_BACKEND=postgres` to store files in PostgreSQL without MinIO.
+
+---
+
+## Background workers
+
+The `background` container runs all Celery workers under `supervisord`. Onyx uses multiple specialized worker types to prevent resource contention between different classes of work.
+
+All workers use **thread pools** (not process forks) for stability. Task time limits must be implemented within each task — Celery's built-in time limit features are silently disabled in thread mode.
+
+### Worker types
+
+<AccordionGroup>
+  <Accordion title="Primary worker">
+    Coordinates core background operations and system-wide tasks. Runs with 4 threads concurrency.
+
+    Handles: connector deletion, Vespa sync, document pruning checks, LLM model updates, user file sync.
+  </Accordion>
+
+  <Accordion title="Docfetching worker">
+    Fetches documents from external data sources (connectors). Spawns `docprocessing` tasks for each document batch. Implements watchdog monitoring for stuck connectors.
+
+    Concurrency: configurable via `CELERY_WORKER_DOCFETCHING_CONCURRENCY`.
+  </Accordion>
+
+  <Accordion title="Docprocessing worker">
+    Processes fetched documents through the full indexing pipeline:
+
+    1. Upsert document records to PostgreSQL
+    2. Chunk documents and add contextual metadata
+    3. Embed chunks via the `indexing_model_server`
+    4. Write chunks and embeddings to Vespa
+    5. Update document metadata and status
+
+    Concurrency: configurable via `CELERY_WORKER_DOCPROCESSING_CONCURRENCY`.
+  </Accordion>
+
+  <Accordion title="Light worker">
+    Handles lightweight, fast-completing operations. Runs at higher concurrency.
+
+    Tasks: Vespa sync operations, document permissions sync, external group sync.
+
+    Concurrency: configurable via `CELERY_WORKER_LIGHT_CONCURRENCY`.
+  </Accordion>
+
+  <Accordion title="Heavy worker">
+    Handles resource-intensive operations. Runs with 4 threads concurrency.
+
+    Primary task: document pruning (removing stale documents from the index).
+  </Accordion>
+
+  <Accordion title="KG processing worker">
+    Handles Knowledge Graph processing and clustering. Builds relationships between documents and runs graph clustering algorithms.
+
+    Scheduled every 60 seconds by the Beat worker.
+  </Accordion>
+
+  <Accordion title="Monitoring worker">
+    System health monitoring and metrics collection. Monitors Celery queues, process memory, and overall system status. Runs single-threaded.
+
+    Scheduled every 5 minutes by the Beat worker.
+  </Accordion>
+
+  <Accordion title="User file processing worker">
+    Processes user-uploaded files. Handles indexing and project synchronization for personal documents.
+  </Accordion>
+
+  <Accordion title="Beat worker (scheduler)">
+    Celery Beat is the periodic task scheduler. Uses a `DynamicTenantScheduler` for multi-tenant support.
+
+    Default schedule:
+
+    | Task | Frequency |
+    |---|---|
+    | Indexing checks | Every 15 seconds |
+    | Connector deletion checks | Every 20 seconds |
+    | Vespa sync checks | Every 20 seconds |
+    | Pruning checks | Every 20 seconds |
+    | KG processing | Every 60 seconds |
+    | Monitoring tasks | Every 5 minutes |
+    | Cleanup tasks | Hourly |
+  </Accordion>
+</AccordionGroup>
+
+### Task priorities
+
+Workers consume from three priority queues: **High**, **Medium**, and **Low**. Redis coordinates queue state and inter-process locking. Task state and metadata are persisted in PostgreSQL.
+
+---
+
+## Data flow
+
+### Connector indexing pipeline
+
+When a connector syncs, the following sequence runs entirely in the background workers:
+
+```
+Connector (external source)
+        │
+        ▼
+  Docfetching worker
+  (fetches raw documents)
+        │
+        ▼
+  Docprocessing worker
+  ├── Upsert to PostgreSQL (metadata)
+  ├── Chunk document text
+  ├── Embed chunks via indexing_model_server
+  └── Write to Vespa (vectors + text)
+```
+
+### RAG query pipeline
+
+When a user sends a chat message, the `api_server` handles the full retrieval-augmented generation flow:
+
+```
+User message
+      │
+      ▼
+  api_server
+  ├── Query rewriting / expansion
+  ├── Hybrid search in Vespa
+  │   ├── Dense vector similarity (ANN)
+  │   └── BM25 keyword match
+  ├── Reranking via inference_model_server
+  ├── Context assembly (top-k chunks)
+  └── LLM call (via LiteLLM)
+        │
+        ▼
+  Streaming response to user
+```
+
+---
+
+## Community vs Enterprise Edition architecture
+
+<Info>
+  The Community Edition (CE) and Enterprise Edition (EE) share the same core service topology. The EE adds features layered on top — it does not require additional infrastructure services.
+</Info>
+
+Enterprise Edition features are conditionally activated by setting `ENABLE_PAID_ENTERPRISE_EDITION_FEATURES=true` in your `.env` and providing a valid license key.
+
+EE-specific code lives in the `backend/ee/` directory and is gated at the API router level. This includes:
+
+- **Advanced SSO**: SAML, OIDC with PKCE, multi-provider support
+- **Multi-tenancy**: Tenant-isolated database schemas managed via `alembic -n schema_private`
+- **Audit logging**: Full query history with user attribution
+- **Advanced RBAC**: Fine-grained role and permission management
+- **Document-level permissioning**: Mirrors ACLs from connected external apps
+
+The frontend (`web/`) uses the same codebase for both editions, with Enterprise-only UI components gated behind feature flags.
+
+---
+
+## Directory structure reference
+
+```
+onyx/
+├── backend/
+│   ├── onyx/              # Community Edition backend
+│   │   ├── auth/          # Auth backends (basic, OAuth, SAML)
+│   │   ├── chat/          # Chat pipeline and LLM interaction
+│   │   ├── connectors/    # 40+ data source connectors
+│   │   ├── db/            # SQLAlchemy models and DB operations
+│   │   ├── document_index/# Vespa client and schema management
+│   │   ├── llm/           # LiteLLM provider wrappers
+│   │   └── server/        # FastAPI routers
+│   ├── ee/                # Enterprise Edition additions
+│   ├── alembic/           # CE database migrations
+│   └── tests/             # Unit, integration, and E2E tests
+├── web/
+│   ├── src/app/           # Next.js App Router pages
+│   ├── src/components/    # Reusable React components
+│   └── src/lib/           # Utilities and business logic
+└── deployment/
+    ├── docker_compose/    # Docker Compose files and env.template
+    ├── kubernetes/        # Helm charts
+    └── data/nginx/        # Nginx configuration templates
+```
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Deploy the full stack with a single command.
+  </Card>
+  <Card title="Docker deployment" icon="docker" href="/deployment/docker">
+    Production configuration, SSL, and security hardening.
+  </Card>
+  <Card title="RAG & search" icon="magnifying-glass" href="/features/rag-and-search">
+    How Onyx's hybrid retrieval and knowledge graph work.
+  </Card>
+  <Card title="Connectors" icon="plug" href="/features/connectors">
+    Configure data source connectors and indexing schedules.
+  </Card>
+</CardGroup>

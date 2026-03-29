@@ -1,0 +1,118 @@
+---
+title: "Deep Research"
+description: "Multi-step agentic research that plans, searches iteratively, and synthesises a comprehensive report — for questions too complex for a single search pass."
+keywords: ["deep research", "agentic", "research", "multi-step", "synthesis", "report"]
+---
+
+Deep Research is an agentic mode that tackles questions requiring more than one search pass. Instead of retrieving a set of documents and immediately generating an answer, Onyx's Deep Research loop plans a research strategy, runs multiple parallel searches, reasons over intermediate findings, and synthesises everything into a structured final report — with full citations.
+
+## How it differs from standard chat
+
+| | Standard chat | Deep Research |
+|---|---|---|
+| Search passes | 1 | Multiple (up to 8 orchestrator cycles) |
+| Research planning | None | Explicit plan generated before searching |
+| Intermediate reasoning | Inline | Dedicated think-tool calls between searches |
+| Output format | Conversational answer | Structured report with sections |
+| Typical response time | Seconds | Minutes |
+| Best for | Focused, single-topic questions | Multi-part, exploratory, or synthesis tasks |
+
+## When to use Deep Research
+
+Deep Research is most valuable when your question:
+
+- Spans multiple topics or requires comparing information from different sources.
+- Asks for a summary or synthesis of a broad subject (e.g., "What are all the architectural decisions the platform team made in Q1?").
+- Requires following a chain of evidence across several documents.
+- Would benefit from a structured, shareable report rather than a conversational reply.
+
+<Tip>
+For quick factual questions or queries scoped to a single document, standard chat is faster and equally accurate. Reserve Deep Research for genuinely complex, multi-part questions.
+</Tip>
+
+## The research loop
+
+The Deep Research loop is implemented in `deep_research/dr_loop.py`. It runs as follows:
+
+<Steps>
+  <Step title="Clarification (optional)">
+    Before planning, Onyx may ask a clarifying question to narrow down ambiguity — for example, "Did you mean the last calendar quarter or the last four sprints?" You can skip this step by answering the clarification or by setting `SKIP_DEEP_RESEARCH_CLARIFICATION=true` in your environment.
+  </Step>
+  <Step title="Research plan">
+    The orchestrator LLM generates a structured research plan — a list of sub-questions or topics to investigate. This plan is visible in the chat UI as it streams. It guides all subsequent search cycles.
+  </Step>
+  <Step title="Parallel research cycles">
+    The orchestrator dispatches multiple **research agent** calls in parallel. Each call searches your indexed documents (and optionally the web) for one or more topics from the plan, producing an intermediate report with citations.
+  </Step>
+  <Step title="Thinking between cycles">
+    Between search cycles, the orchestrator uses a **think tool** to reason over what has been found, decide whether more research is needed, and update the plan. For standard models this adds up to 4 think steps; for reasoning models (`MAX_ORCHESTRATOR_CYCLES_REASONING = 4`) the cycle count is halved.
+  </Step>
+  <Step title="Synthesis">
+    Once the orchestrator decides the research is complete — or after a maximum of **8 cycles** or **30 minutes** — a final report generation step synthesises all intermediate reports into a single structured document. The final report is capped at **20,000 tokens**.
+  </Step>
+  <Step title="Citations">
+    All citations from intermediate reports are merged into a unified `CitationMapping`. The final report uses the same `[1]`, `[2]` inline citation format as standard chat, with links to source documents.
+  </Step>
+</Steps>
+
+## Triggering Deep Research
+
+<Steps>
+  <Step title="Open a chat session">
+    Start a new chat or open an existing one with any agent that has access to your knowledge sources.
+  </Step>
+  <Step title="Switch to Deep Research mode">
+    Click the **Deep Research** toggle or button in the chat input bar. The toggle is visible above the message input field.
+  </Step>
+  <Step title="Enter your question">
+    Type your question as you normally would. Complex, multi-part questions work best. You can also attach files that should be included in the research.
+  </Step>
+  <Step title="Answer any clarifying questions">
+    If Onyx asks a clarifying question, answer it to help the orchestrator produce a more targeted plan. You can also click **Skip** to proceed immediately.
+  </Step>
+  <Step title="Watch the plan and progress">
+    The research plan streams into the chat as it is generated. Each research cycle shows which topics are being investigated. You can watch the intermediate results build up in real time.
+  </Step>
+  <Step title="Review the final report">
+    The finished report appears as a structured response with headings, sub-sections, and inline citations. You can share the chat session or copy the report text.
+  </Step>
+</Steps>
+
+## Configuration
+
+<AccordionGroup>
+  <Accordion title="Skip clarification">
+    By default, the orchestrator may ask one clarifying question before starting research. To always skip this step:
+
+    ```bash
+    SKIP_DEEP_RESEARCH_CLARIFICATION=true
+    ```
+  </Accordion>
+  <Accordion title="Orchestrator cycle limits">
+    Deep Research runs at most `MAX_ORCHESTRATOR_CYCLES = 8` cycles for standard models, or `MAX_ORCHESTRATOR_CYCLES_REASONING = 4` for reasoning models (which have their own built-in extended thinking). These limits prevent runaway research loops.
+  </Accordion>
+  <Accordion title="Timeout">
+    If research is still running after **30 minutes** (`DEEP_RESEARCH_FORCE_REPORT_SECONDS = 1800`), Onyx forces the final report generation step using whatever has been gathered so far. The actual total time may be slightly longer if a research cycle started just before the timeout.
+  </Accordion>
+  <Accordion title="Final report size">
+    The synthesised report is limited to **20,000 tokens** (`MAX_FINAL_REPORT_TOKENS`). Very broad questions that produce extremely long reports will be truncated to this limit.
+  </Accordion>
+  <Accordion title="Search tools used">
+    During each research cycle, the agent has access to:
+    - **Internal search** (`SearchTool`) — queries your indexed documents
+    - **Web search** (`WebSearchTool`) — searches the internet (if web search is enabled on the agent)
+    - **Open URL** (`OpenURLTool`) — fetches full page content from URLs found during web search
+  </Accordion>
+</AccordionGroup>
+
+## Performance considerations
+
+Deep Research is intentionally thorough, which means it takes longer than standard chat:
+
+- A typical Deep Research run takes **2–10 minutes** depending on the complexity of the question and the number of relevant documents.
+- Each research cycle makes multiple LLM calls in parallel, so the LLM provider's rate limits can affect total time.
+- Very broad questions with many research sub-topics will use more tokens and take longer.
+
+<Warning>
+Deep Research consumes significantly more LLM tokens than standard chat — often 10–50× more per query. If you are on a usage-based LLM plan, keep this in mind when enabling Deep Research for large teams.
+</Warning>

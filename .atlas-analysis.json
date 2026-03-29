@@ -1,0 +1,106 @@
+{
+  "projectType": "saas",
+  "projectName": "Onyx",
+  "projectDescription": "Open-source, self-hostable AI chat platform that connects to 40+ knowledge sources with advanced RAG, Agents, Deep Research, and MCP support, compatible with any LLM.",
+  "theme": "palm",
+  "primaryColor": "#a2a2a2",
+  "lightColor": "#1e1e1e",
+  "darkColor": "#ebebeb",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/chat-and-agents",
+              "features/rag-and-search",
+              "features/connectors",
+              "features/tools-and-mcp",
+              "features/deep-research"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/llm-providers",
+              "configuration/authentication",
+              "configuration/environment-variables"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "administration/user-management",
+              "administration/permissions-and-rbac",
+              "administration/monitoring-and-analytics"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Self-Hosting",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/kubernetes",
+              "deployment/terraform",
+              "deployment/cloud-providers"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/upgrading",
+              "operations/troubleshooting",
+              "operations/performance"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI Chat with support for all major LLMs (OpenAI, Anthropic, Gemini, Ollama, vLLM, etc.)",
+    "Custom AI Agents with unique instructions, knowledge, and tool access",
+    "Best-in-class hybrid search + knowledge graph RAG over connected documents",
+    "40+ data source connectors (Confluence, Slack, GitHub, Google Drive, Notion, Jira, etc.)",
+    "Deep Research for multi-step agentic document analysis",
+    "MCP (Model Context Protocol) support for extending agent actions",
+    "Code Interpreter for data analysis, graphs, and file generation",
+    "Web Search integration (Google PSE, Exa, Serper, Firecrawl)",
+    "Image Generation from user prompts",
+    "Enterprise security: SSO (OIDC/SAML/OAuth2), RBAC, document permissioning",
+    "Multi-tenant support with per-tenant task isolation",
+    "One-command Docker deployment with Kubernetes and Terraform support",
+    "Community Edition (MIT) and Enterprise Edition feature tiers"
+  ],
+  "publicApiSurface": [
+    "POST /api/chat/send-message — Send a chat message to an assistant",
+    "GET /api/chat/get-chat-session/{session_id} — Retrieve a chat session",
+    "POST /api/manage/connector — Create a new data source connector",
+    "GET /api/manage/connector — List all connectors",
+    "POST /api/manage/credential — Create connector credentials",
+    "POST /api/manage/connector/credential — Link credential to connector",
+    "GET /api/document — Search and retrieve documents",
+    "POST /api/query/stream-answer-with-quote — Stream search answer with citations",
+    "GET /api/persona — List available AI assistants/agents",
+    "POST /api/persona — Create a custom AI assistant",
+    "GET /api/manage/users — List users (admin)",
+    "POST /api/auth/register — Register a new user",
+    "POST /api/api-key — Create an API key",
+    "GET /api/settings — Get application settings",
+    "POST /api/manage/llm-provider — Configure an LLM provider"
+  ]
+}

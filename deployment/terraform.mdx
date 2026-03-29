@@ -1,0 +1,275 @@
+---
+title: "Terraform"
+description: "Provision Onyx infrastructure on AWS using the official Terraform modules. Covers available modules, prerequisites, quickstart, and key variables."
+keywords: ["terraform", "aws", "eks", "infrastructure", "onyx deploy"]
+---
+
+## Overview
+
+The Terraform configurations for Onyx live at `deployment/terraform/modules/aws/`. They provision a production-grade AWS stack and wire the components together so you can follow up with a Helm install against the resulting EKS cluster.
+
+The modules available are:
+
+<CardGroup cols={2}>
+  <Card title="onyx" icon="layer-group">
+    High-level composition module. Orchestrates `vpc`, `eks`, `postgres`, `redis`, and `s3` with sane defaults. Start here unless you need granular control.
+  </Card>
+  <Card title="vpc" icon="network-wired">
+    Creates a VPC sized for EKS with multiple public and private subnets and an S3 gateway endpoint.
+  </Card>
+  <Card title="eks" icon="server">
+    Provisions an EKS cluster, node groups, EBS CSI driver, metrics server, cluster autoscaler, and optional IRSA for S3 access.
+  </Card>
+  <Card title="postgres" icon="database">
+    Amazon RDS for PostgreSQL. Returns a ready-to-use connection URL.
+  </Card>
+  <Card title="redis" icon="bolt">
+    ElastiCache for Redis replication group with optional auth token and transit encryption.
+  </Card>
+  <Card title="s3" icon="bucket">
+    S3 bucket for file storage, scoped to the VPC S3 gateway endpoint.
+  </Card>
+  <Card title="opensearch" icon="magnifying-glass">
+    Amazon OpenSearch domain inside the VPC. Supports fine-grained access control, encryption, and CloudWatch logging.
+  </Card>
+  <Card title="waf" icon="shield">
+    AWS WAF with rate limiting, IP allowlisting, geo restriction, and CloudWatch logging.
+  </Card>
+</CardGroup>
+
+---
+
+## Prerequisites
+
+- [Terraform CLI](https://developer.hashicorp.com/terraform/install) 1.x or later
+- AWS credentials configured in your environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM role via instance profile / SSO)
+- Sufficient IAM permissions to create EKS clusters, RDS instances, ElastiCache groups, VPCs, S3 buckets, and IAM roles
+- `kubectl` and `helm` installed for the post-Terraform application deployment step
+
+---
+
+## Quickstart
+
+The example below provisions a complete Onyx AWS stack using the top-level `onyx` composition module.
+
+<Steps>
+  <Step title="Create a root Terraform configuration">
+    Create a file such as `main.tf` with the following content:
+
+    ```hcl
+    locals {
+      region = "us-west-2"
+    }
+
+    provider "aws" {
+      region = local.region
+    }
+
+    module "onyx" {
+      # Path relative to this file if the onyx repo is checked out alongside your config:
+      source = "./modules/aws/onyx"
+
+      region            = local.region
+      name              = "onyx"
+      postgres_username = "pgusername"
+      postgres_password = "your-postgres-password"
+    }
+
+    resource "null_resource" "wait_for_cluster" {
+      provisioner "local-exec" {
+        command = "aws eks wait cluster-active --name ${module.onyx.cluster_name} --region ${local.region}"
+      }
+    }
+
+    data "aws_eks_cluster" "eks" {
+      name       = module.onyx.cluster_name
+      depends_on = [null_resource.wait_for_cluster]
+    }
+
+    data "aws_eks_cluster_auth" "eks" {
+      name       = module.onyx.cluster_name
+      depends_on = [null_resource.wait_for_cluster]
+    }
+
+    provider "kubernetes" {
+      host                   = data.aws_eks_cluster.eks.endpoint
+      cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
+      token                  = data.aws_eks_cluster_auth.eks.token
+    }
+
+    provider "helm" {
+      kubernetes {
+        host                   = data.aws_eks_cluster.eks.endpoint
+        cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
+        token                  = data.aws_eks_cluster_auth.eks.token
+      }
+    }
+
+    output "cluster_name" {
+      value = module.onyx.cluster_name
+    }
+
+    output "postgres_connection_url" {
+      value     = module.onyx.postgres_connection_url
+      sensitive = true
+    }
+
+    output "redis_connection_url" {
+      value     = module.onyx.redis_connection_url
+      sensitive = true
+    }
+    ```
+  </Step>
+  <Step title="Initialise and apply">
+    ```bash
+    terraform init
+    terraform apply
+    ```
+
+    The first apply provisions all infrastructure. EKS cluster creation typically takes 10–15 minutes.
+  </Step>
+  <Step title="Configure kubectl">
+    ```bash
+    aws eks update-kubeconfig \
+      --name $(terraform output -raw cluster_name) \
+      --region us-west-2
+    ```
+  </Step>
+  <Step title="Deploy Onyx via Helm">
+    Once the cluster is active, install the Onyx Helm chart. If the EKS module created an IRSA role for S3 access, disable MinIO and reference the generated service account:
+
+    ```bash
+    kubectl create namespace onyx --dry-run=client -o yaml | kubectl apply -f -
+
+    helm upgrade --install onyx ./deployment/helm/charts/onyx \
+      --namespace onyx \
+      --set minio.enabled=false \
+      --set serviceAccount.create=false \
+      --set serviceAccount.name=onyx-s3-access \
+      --set auth.opensearch.values.opensearch_admin_password='YourStrongPassword1!'
+    ```
+
+    See [Kubernetes](/deployment/kubernetes) for full Helm configuration options.
+  </Step>
+</Steps>
+
+---
+
+## Using an existing VPC
+
+If you already have a VPC, disable VPC creation and provide your existing resource IDs:
+
+```hcl
+module "onyx" {
+  source = "./modules/aws/onyx"
+
+  region            = local.region
+  name              = "onyx"
+  postgres_username = "pgusername"
+  postgres_password = "your-postgres-password"
+
+  create_vpc         = false
+  vpc_id             = "vpc-xxxxxxxx"
+  private_subnets    = ["subnet-aaaa", "subnet-bbbb", "subnet-cccc"]
+  public_subnets     = ["subnet-dddd", "subnet-eeee", "subnet-ffff"]
+  vpc_cidr_block     = "10.0.0.0/16"
+  s3_vpc_endpoint_id = "vpce-xxxxxxxxxxxxxxxxx"
+}
+```
+
+---
+
+## Key variables
+
+### `onyx` module
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `name` | string | `"onyx"` | Prefix for all resource names. Combined with the Terraform workspace. |
+| `region` | string | `"us-west-2"` | AWS region for all resources. |
+| `postgres_username` | string | `"postgres"` | RDS superuser username. |
+| `postgres_password` | string | — | RDS superuser password. **Required.** |
+| `create_vpc` | bool | `true` | Create a new VPC. Set to `false` to reuse an existing one. |
+| `public_cluster_enabled` | bool | `true` | Enable public EKS API endpoint. |
+| `private_cluster_enabled` | bool | `false` | Enable private EKS API endpoint. Set to `true` for production. |
+| `cluster_endpoint_public_access_cidrs` | list(string) | `[]` | Restrict public API access to these CIDR blocks. |
+| `redis_auth_token` | string | `null` | Auth token for the ElastiCache Redis cluster. |
+| `enable_iam_auth` | bool | `false` | Use IAM authentication for RDS instead of a password. |
+| `tags` | map(string) | `{"project":"onyx"}` | Tags applied to all resources. |
+
+### WAF variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `waf_rate_limit_requests_per_5_minutes` | `2000` | Requests per 5 min per IP before blocking. |
+| `waf_api_rate_limit_requests_per_5_minutes` | `1000` | API-specific rate limit per IP. |
+| `waf_allowed_ip_cidrs` | `[]` | IPv4 CIDRs allowed through WAF. Empty = no allowlist. |
+| `waf_geo_restriction_countries` | `[]` | Country codes to block. Empty = no restriction. |
+| `waf_enable_logging` | `true` | Log WAF decisions to CloudWatch. |
+| `waf_log_retention_days` | `90` | Days to retain WAF logs. |
+
+### OpenSearch variables
+
+OpenSearch is opt-in for the AWS stack (the `onyx` module deploys Vespa on EKS by default):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `enable_opensearch` | `false` | Create a managed OpenSearch domain. |
+| `opensearch_engine_version` | `"3.3"` | OpenSearch engine version. |
+| `opensearch_instance_type` | `"r8g.large.search"` | Data node instance type. |
+| `opensearch_instance_count` | `3` | Number of data nodes. |
+| `opensearch_ebs_volume_size` | `512` | EBS volume size (GiB) per node. |
+| `opensearch_master_user_name` | `null` | Master username for fine-grained access control. |
+| `opensearch_master_user_password` | `null` | Master password. |
+
+---
+
+## Module outputs
+
+| Output | Sensitive | Description |
+|--------|-----------|-------------|
+| `cluster_name` | No | EKS cluster name |
+| `postgres_connection_url` | Yes | Full `postgres://...` connection string |
+| `redis_connection_url` | Yes | ElastiCache endpoint and port |
+
+<Warning>
+The `postgres_connection_url` and `redis_connection_url` outputs are marked sensitive. Do not print them to CI logs. Retrieve them with `terraform output -raw postgres_connection_url` only in secure contexts.
+</Warning>
+
+---
+
+## Terraform workspaces
+
+The `onyx` module uses the current Terraform workspace name as a suffix for resource names. Use workspaces to create isolated staging and production environments from a single configuration:
+
+```bash
+terraform workspace new staging
+terraform apply
+
+terraform workspace new production
+terraform apply
+```
+
+---
+
+## IRSA for S3 access
+
+If you supply `s3_bucket_names` to the EKS module, it creates an IRSA role and a Kubernetes `ServiceAccount` named `onyx-s3-access` in the `onyx` namespace. Use this to avoid storing long-lived S3 credentials:
+
+```hcl
+module "onyx" {
+  source          = "./modules/aws/onyx"
+  # ... other vars ...
+}
+
+# The EKS module accepts s3_bucket_names via the onyx module's passthrough.
+# Refer to modules/aws/eks/variables.tf for the full list of EKS inputs.
+```
+
+In the Helm chart, reference the generated service account:
+
+```yaml
+serviceAccount:
+  create: false
+  name: onyx-s3-access
+```

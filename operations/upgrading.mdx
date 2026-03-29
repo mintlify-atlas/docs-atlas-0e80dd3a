@@ -1,0 +1,102 @@
+---
+title: "Upgrading Onyx"
+description: "How to upgrade your Onyx deployment safely with minimal downtime."
+---
+
+Onyx follows semantic versioning. Database migrations run automatically via Alembic on startup, so most upgrades are a pull-and-restart operation.
+
+<Warning>
+  Always back up your Postgres database and review the [GitHub release notes](https://github.com/onyx-dot-app/onyx/releases) before upgrading, especially across major versions.
+</Warning>
+
+## Docker Compose upgrade
+
+<Steps>
+  <Step title="Back up Postgres">
+    ```bash
+    docker exec onyx-relational_db-1 pg_dumpall -U postgres > onyx-backup-$(date +%F).sql
+    ```
+    Store the dump somewhere safe before proceeding.
+  </Step>
+  <Step title="Pull the latest images">
+    ```bash
+    docker compose pull
+    ```
+    This downloads updated images without stopping running containers.
+  </Step>
+  <Step title="Restart services">
+    ```bash
+    docker compose up -d
+    ```
+    Alembic migrations run automatically when `api_server` starts. Watch the logs to confirm:
+    ```bash
+    docker compose logs -f api_server
+    ```
+    Look for `Alembic upgrade complete` before sending traffic.
+  </Step>
+  <Step title="Verify">
+    ```bash
+    docker compose ps
+    ```
+    All services should show `Up`. Check the admin panel to confirm the version number updated.
+  </Step>
+</Steps>
+
+## Helm (Kubernetes) upgrade
+
+<Steps>
+  <Step title="Fetch the latest chart">
+    ```bash
+    helm repo update
+    ```
+  </Step>
+  <Step title="Review value changes">
+    Check the chart's `CHANGELOG` or release notes for any new required values.
+  </Step>
+  <Step title="Upgrade the release">
+    ```bash
+    helm upgrade onyx onyx/onyx \
+      --namespace onyx \
+      --values values.yaml
+    ```
+  </Step>
+  <Step title="Monitor rollout">
+    ```bash
+    kubectl rollout status deployment/onyx-api-server -n onyx
+    kubectl logs -n onyx -l app=api-server --tail=50
+    ```
+  </Step>
+</Steps>
+
+## Rollback
+
+If the upgrade causes issues, roll back to the previous image tag:
+
+```bash
+# Docker Compose — pin the previous version in .env
+ONYX_VERSION=v0.x.y docker compose up -d
+
+# Helm
+helm rollback onyx 1 --namespace onyx
+```
+
+<Note>
+  Alembic does not automatically reverse migrations on rollback. If the new version added schema changes, restore from your Postgres backup instead of running the old image against the new schema.
+</Note>
+
+## Upgrade checklist
+
+<AccordionGroup>
+  <Accordion title="Before upgrading">
+    - Read the release notes on GitHub for breaking changes
+    - Back up Postgres with `pg_dumpall`
+    - Note your current image tags so you can roll back
+    - Schedule during low-traffic hours for production
+  </Accordion>
+  <Accordion title="After upgrading">
+    - Confirm all containers/pods are healthy
+    - Test chat with your default LLM
+    - Run a connector sync and verify documents appear
+    - Check the Admin → System Info panel for the new version
+  </Accordion>
+</AccordionGroup>

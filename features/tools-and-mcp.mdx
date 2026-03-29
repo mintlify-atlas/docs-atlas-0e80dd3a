@@ -1,0 +1,197 @@
+---
+title: "Tools & MCP"
+description: "Built-in tools agents can invoke during a conversation, and the Model Context Protocol server that exposes Onyx to external LLM clients."
+keywords: ["tools", "MCP", "web search", "code interpreter", "image generation", "file reader", "memory", "model context protocol"]
+---
+
+Tools extend what an agent can do beyond answering from indexed documents. When an agent has tools enabled, the LLM can decide mid-conversation to invoke a tool, observe its result, and continue reasoning — all within a single response turn. Results stream back to the chat UI in real time.
+
+## Built-in tools
+
+<CardGroup cols={2}>
+  <Card title="Web search" icon="magnifying-glass">
+    Search the public internet for current information. Returns titles, URLs, and snippets from up to `NUM_INTERNET_SEARCH_RESULTS` (default: 10) results.
+  </Card>
+  <Card title="Code interpreter" icon="terminal">
+    Execute Python code in a sandboxed environment. The agent can write code, run it, observe the output, and iterate — useful for data analysis and calculations.
+  </Card>
+  <Card title="Image generation" icon="image">
+    Generate images from a text prompt using a configured image model. Generated images are embedded directly in the chat response.
+  </Card>
+  <Card title="File reader" icon="file">
+    Read the contents of files uploaded to the conversation or attached to the agent. Used when files are too large to fit in the context window directly.
+  </Card>
+  <Card title="Open URL" icon="link">
+    Fetch the full text of a specific web page. Used after web search to read the complete content of a result, powered by a built-in crawler or Firecrawl.
+  </Card>
+  <Card title="Memory" icon="brain">
+    Store and retrieve persistent facts across chat sessions. The agent can save key information to memory and recall it in future conversations.
+  </Card>
+</CardGroup>
+
+### Web search (`web_search_tool.py`)
+
+The web search tool queries the internet and returns up to `NUM_INTERNET_SEARCH_RESULTS` (default: **10**) results, each with a title, URL, and snippet. Up to `NUM_INTERNET_SEARCH_CHUNKS` (default: **50**) content chunks from those pages are processed and fed to the LLM.
+
+Multiple search provider clients are supported (see `web_search/clients/` and `web_search/providers.py`). The active provider is configured in the Admin panel.
+
+### Code interpreter (`python_tool.py`)
+
+The code interpreter runs Python in a sandboxed execution environment via `code_interpreter_client.py`. The agent:
+
+1. Writes a Python script based on the user's request.
+2. Sends it to the sandbox for execution.
+3. Receives stdout, stderr, and any generated files.
+4. Incorporates the output into its response.
+
+The sandbox is isolated — it has no access to your Onyx data or the internet by default.
+
+### Image generation (`image_generation_tool.py`)
+
+When image generation is enabled on an agent, the LLM can call this tool with a text prompt. The generated image is returned as a `GeneratedImage` object and rendered inline in the chat response. Provider and model are configured in the Admin panel.
+
+### File reader (`file_reader_tool.py`)
+
+When a user uploads a file to chat (or when files are attached to an agent), Onyx tries to load the file directly into context. If the file is too large — or the agent's project has too many files — the file reader tool is used instead. The LLM is given a listing of available files and their approximate character counts, then calls `read_file` with a specific file ID to retrieve its content on demand.
+
+### Open URL (`open_url_tool.py`)
+
+After a web search returns URLs, the agent can fetch the full text of any URL using this tool. The implementation supports both Onyx's built-in crawler (`onyx_web_crawler.py`) and Firecrawl (`firecrawl.py`) as backends. URL normalisation (`url_normalization.py`) ensures the same page isn't fetched twice.
+
+### Memory (`memory_tool.py`)
+
+The memory tool lets an agent persist facts across sessions:
+
+- **Store** — save a key–value pair (e.g., `user_role: "engineering lead"`) that survives conversation boundaries.
+- **Retrieve** — the agent queries memory at the start of relevant conversations to surface previously saved context.
+
+Memory records are scoped per user and per agent. They are stored in the `memories` database table and loaded via `db/memory.py`.
+
+## Adding tools to an agent
+
+<Steps>
+  <Step title="Open the agent editor">
+    Go to **Admin → Agents** and click the agent you want to edit (or create a new one).
+  </Step>
+  <Step title="Open the Tools section">
+    Scroll to the **Tools** section in the editor.
+  </Step>
+  <Step title="Enable the tools you want">
+    Toggle each tool on or off. Only enabled tools are passed to the LLM in the system context, so enabling fewer tools reduces noise and improves reliability.
+  </Step>
+  <Step title="Save">
+    Click **Save**. The next conversation with this agent will have access to the newly enabled tools.
+  </Step>
+</Steps>
+
+## Custom tools
+
+You can define your own tools in **Admin → Tools** and attach them to any agent. A custom tool is defined by:
+
+- An **OpenAPI-compatible JSON schema** describing the tool's name, description, and parameters.
+- An **endpoint URL** that Onyx calls when the LLM invokes the tool.
+- Optional **authentication** headers (API key, Bearer token, or basic auth).
+
+The LLM receives the tool's description and parameter schema and decides when to call it, just like a built-in tool. Results are streamed back to the chat.
+
+<Note>
+Custom tool endpoints must be reachable from the Onyx backend server. If you are running Onyx on-premise, make sure internal network routing allows outbound calls to your tool endpoint.
+</Note>
+
+## MCP server
+
+Onyx includes a **Model Context Protocol (MCP) server** that exposes your knowledge base to external LLM clients — for example Claude Desktop, Cursor, or any MCP-compatible application.
+
+MCP is an open standard that lets LLMs call tools and retrieve resources from external services using a uniform interface. The Onyx MCP server is built on [FastMCP](https://github.com/jlowin/fastmcp) and runs alongside the main API server.
+
+### Architecture
+
+```
+LLM client (Claude Desktop, etc.)
+        │  MCP over HTTP (POST + Bearer token)
+        ▼
+Onyx MCP Server  (port 8090)
+  ├── Auth validation
+  ├── Tools
+  └── Resources
+        │  Internal HTTP
+        ▼
+Onyx API Server  (port 8080)
+  ├── /me (identity check)
+  ├── Search APIs
+  └── ACL enforcement
+```
+
+All access controls defined in Onyx apply to MCP calls. The MCP server never bypasses the API server's permission checks.
+
+### MCP tools
+
+The MCP server exposes three tools:
+
+| Tool | Description |
+|---|---|
+| `search_indexed_documents` | Search your private knowledge base. Returns ranked documents with content snippets, relevance scores, and metadata. |
+| `search_web` | Search the public internet. Returns titles, URLs, and snippets. |
+| `open_urls` | Fetch the full text of specific web URLs. |
+
+### MCP resources
+
+| Resource | Description |
+|---|---|
+| `indexed_sources` | Lists all connector source types currently indexed in your tenant (e.g. `"confluence"`, `"github"`). Pass these as filters to `search_indexed_documents`. |
+
+### Authentication
+
+All MCP requests require a **Personal Access Token** or **API Key** passed as a `Bearer` token in the `Authorization` header. Tokens are generated in your Onyx user settings.
+
+### Connecting Claude Desktop
+
+<Steps>
+  <Step title="Generate a token">
+    In Onyx, go to **Settings → API Keys** and create a new personal access token.
+  </Step>
+  <Step title="Edit your Claude Desktop config">
+    Open `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and add:
+
+    ```json
+    {
+      "mcpServers": {
+        "onyx": {
+          "url": "https://YOUR_ONYX_DOMAIN:8090/",
+          "transport": "http",
+          "headers": {
+            "Authorization": "Bearer YOUR_ONYX_TOKEN_HERE"
+          }
+        }
+      }
+    }
+    ```
+  </Step>
+  <Step title="Restart Claude Desktop">
+    Quit and relaunch Claude Desktop. The Onyx tools will appear in Claude's tool list.
+  </Step>
+</Steps>
+
+### Enabling the MCP server
+
+The MCP server is disabled by default. Set the following environment variable to enable it:
+
+```bash
+MCP_SERVER_ENABLED=true
+MCP_SERVER_PORT=8090          # default
+```
+
+### Verifying the server is running
+
+```bash
+curl http://localhost:8090/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "healthy",
+  "service": "mcp_server"
+}
+```

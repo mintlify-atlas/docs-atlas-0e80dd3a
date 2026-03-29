@@ -1,0 +1,165 @@
+---
+title: "RAG & Search"
+description: "How Onyx retrieves, ranks, and cites documents — from hybrid keyword/semantic search to knowledge graph entity relationships."
+keywords: ["RAG", "retrieval", "search", "embeddings", "hybrid search", "knowledge graph", "citations"]
+---
+
+Onyx's retrieval-augmented generation (RAG) pipeline combines three complementary approaches: **hybrid search** (keyword + semantic), an optional **knowledge graph** for entity relationships, and a structured **indexing pipeline** that keeps your documents current. Together they ensure that every chat response is grounded in accurate, permission-scoped sources.
+
+## Hybrid search
+
+Onyx runs both keyword (BM25) and semantic (vector embedding) search on every query and merges the results using a weighted combination. The blending weight is controlled by `HYBRID_ALPHA`:
+
+| `HYBRID_ALPHA` value | Behavior |
+|---|---|
+| `0.0` | Pure keyword (BM25) search |
+| `0.5` (default) | Equal weight between keyword and semantic |
+| `1.0` | Pure semantic (vector) search |
+
+Document titles and content are scored separately and recombined. The `TITLE_CONTENT_RATIO` (default: **0.10**) gives a small boost to title matches without over-weighting them — the document body is still the primary signal.
+
+Onyx stores vectors and BM25 index entries in **Vespa**, a purpose-built search engine. The `vespa/` directory under `document_index/` contains all query and indexing logic. A fallback OpenSearch backend (`opensearch/`) is also supported for deployments that already run OpenSearch.
+
+## Context window assembly
+
+When a query matches documents, Onyx selects up to `MAX_CHUNKS_FED_TO_CHAT` chunks (default: **25**) to pass to the LLM. For the highest-scoring chunk, it also includes `CONTEXT_CHUNKS_ABOVE` (default: **1**) and `CONTEXT_CHUNKS_BELOW` (default: **1**) neighbouring chunks to preserve surrounding context.
+
+## Recency scoring
+
+Documents receive a time-decay multiplier so that fresh content ranks higher:
+
+```
+recency_score = 1 / (1 + DOC_TIME_DECAY × doc_age_in_years)
+```
+
+`DOC_TIME_DECAY` defaults to **0.5**, capped at a minimum of **0.5** in Vespa, meaning even the oldest documents retain at least half their base score. When a user explicitly asks for recent results, `FAVOR_RECENT_DECAY_MULTIPLIER` (**2.0×**) amplifies the decay.
+
+## Embedding models
+
+Onyx supports both cloud-hosted and self-hosted embedding models. The default precision is **BFLOAT16** (16-bit brain float), with FLOAT32 available for backwards compatibility.
+
+### Cloud-hosted models
+
+| Model | Dimensions |
+|---|---|
+| `openai/text-embedding-3-large` | 3,072 |
+| `openai/text-embedding-3-small` | 1,536 |
+| `google/gemini-embedding-001` | 3,072 |
+| `google/text-embedding-005` | 768 |
+| `cohere/embed-english-v3.0` | 1,024 |
+| `cohere/embed-english-light-v3.0` | 384 |
+| `voyage/voyage-large-2-instruct` | 1,024 |
+| `voyage/voyage-light-2-instruct` | 384 |
+
+### Self-hosted models
+
+| Model | Dimensions |
+|---|---|
+| `nomic-ai/nomic-embed-text-v1` | 768 |
+| `intfloat/e5-base-v2` | 768 |
+| `intfloat/e5-small-v2` | 384 |
+| `intfloat/multilingual-e5-base` | 768 |
+| `intfloat/multilingual-e5-small` | 384 |
+
+<Tip>
+Use a multilingual model (`intfloat/multilingual-e5-base` or `intfloat/multilingual-e5-small`) if your knowledge base contains documents in multiple languages.
+</Tip>
+
+## Document indexing pipeline
+
+When a connector syncs, each document passes through the `indexing_pipeline.py` orchestration layer in this order:
+
+<Steps>
+  <Step title="Fetch">
+    The connector pulls raw documents from the source (Confluence pages, GitHub files, Slack messages, etc.) and emits them as batches.
+  </Step>
+  <Step title="Chunk">
+    `chunker.py` splits each document into overlapping text chunks. Chunk boundaries respect sentence and paragraph structure to avoid cutting a sentence in half.
+  </Step>
+  <Step title="Enrich">
+    `chunk_content_enrichment.py` optionally augments each chunk — for example by prepending the document title or section heading — to improve retrieval accuracy.
+  </Step>
+  <Step title="Embed">
+    `embedder.py` sends each chunk to the configured embedding model (cloud or self-hosted) and receives a dense vector back. Vectors are stored at the configured precision (BFLOAT16 by default).
+  </Step>
+  <Step title="Index">
+    `vector_db_insertion.py` writes chunks, vectors, and metadata to Vespa. BM25 indices are updated in the same write operation.
+  </Step>
+  <Step title="Permissions sync">
+    Document ACLs from the source application (e.g. Confluence space permissions, Google Drive sharing settings) are recorded alongside each document. Queries are filtered at search time so users only see documents they are allowed to access.
+  </Step>
+</Steps>
+
+## Knowledge graph
+
+The `kg/` directory implements an optional knowledge graph layer on top of the standard vector index. The knowledge graph extracts **entities** (people, projects, concepts) and **relationships** between them from your indexed documents, then stores these in Vespa alongside the raw chunks.
+
+This enables queries like "what did the infrastructure team work on last quarter?" to traverse entity relationships — not just match keyword co-occurrence.
+
+The knowledge graph pipeline has dedicated Celery workers (`kg_processing`) that run clustering algorithms after each indexing cycle.
+
+<AccordionGroup>
+  <Accordion title="Knowledge graph components">
+    | Directory | Purpose |
+    |---|---|
+    | `kg/extractions/` | Prompts and logic to extract entities and relations from document text |
+    | `kg/clustering/` | Groups related entities to reduce duplication |
+    | `kg/vespa/` | Writes entity nodes and relationship edges to Vespa |
+    | `kg/setup/` | Initialises the KG schema on first run |
+    | `kg/utils/` | Shared helpers for entity normalisation |
+  </Accordion>
+  <Accordion title="Enabling the knowledge graph">
+    The knowledge graph is an opt-in feature. Once your connectors are syncing, the `kg_processing` Celery worker runs every 60 seconds to process newly indexed documents. No additional configuration is needed for basic extraction; advanced tuning (entity types, relationship types) is available in the Admin panel.
+  </Accordion>
+  <Accordion title="Document-level permissions">
+    Onyx mirrors permissions from source applications:
+
+    - **Google Drive** — inherits file sharing settings (org-wide, specific people, restricted)
+    - **Confluence** — mirrors space and page-level restrictions
+    - **GitHub** — respects repository visibility (public/private) and team membership
+    - **Slack** — public channels are visible to all; private channels only to members
+
+    Permission records are refreshed on each connector sync. A user querying Onyx will never see a document returned that they could not access in the source application.
+  </Accordion>
+</AccordionGroup>
+
+## Citations and source attribution
+
+Every assistant response that uses retrieved documents includes **inline citations** in the format `[1]`, `[2]`, etc. Each citation maps to a specific source document, including its title and a direct link back to the original. The `CitationInfo` model carries the citation index, document title, source URL, and the connector type.
+
+A `CitationMapping` is built incrementally as the LLM streams its response — citations are resolved in real time and attached to the streaming response before it reaches the browser.
+
+<Note>
+If the LLM generates an answer from its own training knowledge without retrieving any documents, no citations appear. This is expected behaviour for general questions that fall outside your indexed knowledge.
+</Note>
+
+## Advanced configuration
+
+<AccordionGroup>
+  <Accordion title="HYBRID_ALPHA — search blend">
+    ```bash
+    HYBRID_ALPHA=0.7  # 70% semantic, 30% keyword
+    ```
+    Set in your environment or `.env` file. Accepts any float between `0.0` and `1.0`. Values outside this range are clipped.
+  </Accordion>
+  <Accordion title="MAX_CHUNKS_FED_TO_CHAT — context size">
+    ```bash
+    MAX_CHUNKS_FED_TO_CHAT=40
+    ```
+    Increase this to give the LLM more retrieved context, at the cost of higher token usage and latency. Decrease it for faster responses on simpler questions.
+  </Accordion>
+  <Accordion title="DOC_TIME_DECAY — recency bias">
+    ```bash
+    DOC_TIME_DECAY=0.0  # Disable recency decay entirely
+    DOC_TIME_DECAY=1.0  # Strong recency bias
+    ```
+    Set to `0` to treat all documents equally regardless of age.
+  </Accordion>
+  <Accordion title="CONTEXT_CHUNKS_ABOVE / CONTEXT_CHUNKS_BELOW — chunk neighbours">
+    ```bash
+    CONTEXT_CHUNKS_ABOVE=2
+    CONTEXT_CHUNKS_BELOW=2
+    ```
+    Pulls in additional neighbouring chunks around the top match to preserve more surrounding context.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,87 @@
+---
+title: "Introduction"
+description: "Onyx is a feature-rich, self-hostable AI chat platform with RAG, Agents, 40+ connectors, Deep Research, and MCP support."
+keywords: ["onyx", "open source", "ai chat", "rag", "agents", "self-hosted", "enterprise search"]
+---
+
+**Onyx** is an open-source AI platform that gives your team a powerful chat interface backed by your organization's knowledge. It works with any LLM — cloud or self-hosted — and ships with advanced retrieval, agent capabilities, and enterprise-grade security built in.
+
+Onyx runs entirely on your infrastructure. You can deploy it in minutes with Docker Compose, or configure it for large-scale production on Kubernetes or Terraform.
+
+<Tip>
+  Don't want to self-host? Try **[Onyx Cloud](https://cloud.onyx.app/signup)** — a fully managed version with no setup required.
+</Tip>
+
+## Key features
+
+<CardGroup cols={3}>
+  <Card title="Custom Agents" icon="robot">
+    Build AI Agents with unique instructions, dedicated knowledge bases, and tool access. Agents can act on external systems via MCP.
+  </Card>
+  <Card title="RAG & hybrid search" icon="magnifying-glass">
+    Best-in-class hybrid search combined with a knowledge graph for uploaded files and documents ingested from connectors. Stays accurate at tens of millions of documents.
+  </Card>
+  <Card title="40+ connectors" icon="plug">
+    Pull documents, metadata, and access permissions from Slack, Confluence, GitHub, Google Drive, Jira, Notion, and 40+ more sources.
+  </Card>
+  <Card title="Deep Research" icon="microscope">
+    Multi-step agentic research that synthesizes in-depth answers across your entire knowledge base.
+  </Card>
+  <Card title="Actions & MCP" icon="bolt">
+    Give Agents the ability to interact with external systems using the Model Context Protocol.
+  </Card>
+  <Card title="Web search" icon="globe">
+    Browse the web with Google PSE, Exa, Serper, an in-house scraper, or Firecrawl — directly from chat.
+  </Card>
+  <Card title="Code interpreter" icon="code">
+    Execute code to analyze data, render graphs, and create files without leaving the chat interface.
+  </Card>
+  <Card title="Image generation" icon="image">
+    Generate images from natural language prompts within any conversation.
+  </Card>
+  <Card title="Collaboration" icon="users">
+    Chat sharing, feedback collection, user management, usage analytics, and role-based access control.
+  </Card>
+</CardGroup>
+
+## LLM compatibility
+
+Onyx works with all major LLM providers through LiteLLM:
+
+- **Cloud providers**: OpenAI, Anthropic, Google Gemini, Cohere, and more
+- **Self-hosted models**: Ollama, vLLM, and any OpenAI-compatible endpoint
+- **Configurable per feature**: Use different models for chat, search, and embeddings
+
+## Enterprise-ready
+
+Onyx is built for teams of all sizes, from solo developers to global enterprises:
+
+- **Enterprise search**: Custom indexing and retrieval that remains performant at scale — tested to tens of millions of documents
+- **Security**: SSO via OIDC, SAML, and OAuth2; role-based access control; encrypted credential storage
+- **Document permissioning**: Mirrors access controls from external apps so users only retrieve documents they can access
+- **Management UI**: Distinct user roles — basic, curator, and admin — with a full admin panel
+
+## Licensing
+
+Onyx ships in two editions:
+
+| Edition | License | Description |
+|---|---|---|
+| **Community Edition (CE)** | MIT | Fully open source. Free to use, modify, and self-host. |
+| **Enterprise Edition (EE)** | Commercial | Adds features for larger organizations: advanced SSO, audit logging, multi-tenancy, and more. |
+
+The Community Edition covers most use cases. Enterprise Edition features are gated behind a license key and require a paid plan. See [onyx.app/pricing](https://www.onyx.app/pricing) for details.
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Deploy Onyx in minutes using the one-line install script or Docker Compose.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand how the backend, vector search, and Celery workers fit together.
+  </Card>
+  <Card title="Connectors" icon="plug" href="/features/connectors">
+    Connect Onyx to your organization's knowledge sources.
+  </Card>
+</CardGroup>

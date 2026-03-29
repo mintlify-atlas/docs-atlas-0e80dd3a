@@ -1,0 +1,340 @@
+---
+title: "Kubernetes"
+description: "Deploy Onyx on Kubernetes using the official Helm chart. Covers prerequisites, installation, key values, resource sizing, persistent storage, and ingress."
+keywords: ["kubernetes", "helm", "k8s", "self-hosted", "onyx deploy"]
+---
+
+## Prerequisites
+
+- `kubectl` configured against a running Kubernetes cluster
+- Helm 3.x
+- Sufficient cluster capacity — see [resource recommendations](#resource-recommendations) below
+
+---
+
+## Helm chart overview
+
+The Onyx Helm chart is located at `deployment/helm/charts/onyx` in the repository. It bundles the following subcharts as optional dependencies (all enabled by default):
+
+| Subchart | Version | Purpose |
+|----------|---------|---------|
+| `cloudnative-pg` | 0.26.0 | PostgreSQL cluster operator |
+| `vespa` | 0.2.25 | Vector/keyword search engine |
+| `opensearch` | 3.4.0 | Full-text search index |
+| `ingress-nginx` | 4.13.3 | Reverse proxy / load balancer |
+| `redis` | 0.16.6 | Celery broker and cache |
+| `minio` | 5.4.0 | S3-compatible file store |
+| `code-interpreter` | 0.3.1 | Sandboxed Python execution |
+
+Chart version: **0.4.38** — App version: **latest**
+
+---
+
+## Installation
+
+<Steps>
+  <Step title="Add the Helm repository dependencies">
+    The chart depends on several external Helm repositories. Run `helm dependency update` from the chart directory to fetch them:
+
+    ```bash
+    cd deployment/helm/charts/onyx
+    helm dependency update .
+    ```
+  </Step>
+  <Step title="Create a namespace">
+    ```bash
+    kubectl create namespace onyx
+    ```
+  </Step>
+  <Step title="Set the required OpenSearch admin password">
+    The bundled OpenSearch chart requires an admin password to be set on first install. You must provide it before the cluster initialises — changing it later will not rotate the OpenSearch password.
+
+    ```bash
+    # The password must contain uppercase, lowercase, a digit, and a special character (min 8 chars).
+    helm install onyx ./deployment/helm/charts/onyx \
+      --namespace onyx \
+      --set auth.opensearch.values.opensearch_admin_password='YourStrongPassword1!'
+    ```
+  </Step>
+  <Step title="Customise values (recommended)">
+    Copy `values.yaml` to a local override file and edit it. Then install using both files:
+
+    ```bash
+    helm install onyx ./deployment/helm/charts/onyx \
+      --namespace onyx \
+      -f my-values.yaml
+    ```
+  </Step>
+  <Step title="Verify the rollout">
+    ```bash
+    kubectl -n onyx get pods
+    kubectl -n onyx rollout status deployment/onyx-api
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Key values
+
+The sections below cover the most commonly changed values. For the full reference, read `values.yaml` in the chart directory.
+
+### Global settings
+
+```yaml
+global:
+  version: "latest"        # Image tag for all Onyx components
+  pullPolicy: "IfNotPresent"
+
+configMap:
+  AUTH_TYPE: "basic"       # basic | google_oauth | oidc | saml
+  WEB_DOMAIN: "https://onyx.example.com"
+  DOMAIN: "onyx.example.com"
+```
+
+### Authentication secrets
+
+The chart manages Kubernetes Secrets for all credentials. Provide values before first install:
+
+```yaml
+auth:
+  postgresql:
+    values:
+      username: "postgres"
+      password: "change-me"       # Postgres superuser password
+
+  redis:
+    values:
+      redis_password: "change-me"
+
+  objectstorage:
+    values:
+      s3_aws_access_key_id: "minioadmin"
+      s3_aws_secret_access_key: "change-me"
+      rootUser: "minioadmin"
+      rootPassword: "change-me"
+
+  opensearch:
+    values:
+      opensearch_admin_username: "admin"
+      opensearch_admin_password: "YourStrongPassword1!"
+
+  userauth:
+    enabled: true
+    values:
+      user_auth_secret: ""        # Generate with: openssl rand -hex 32
+```
+
+<Warning>
+Use `existingSecret` fields to reference pre-existing Kubernetes Secrets instead of embedding credentials in `values.yaml`. This is required for GitOps workflows.
+</Warning>
+
+### Disabling vector DB (lite mode)
+
+For a minimal deployment without connectors or RAG search:
+
+```yaml
+vectorDB:
+  enabled: false
+
+vespa:
+  enabled: false
+
+redis:
+  enabled: false
+
+configMap:
+  CACHE_BACKEND: "postgres"
+  AUTH_BACKEND: "postgres"
+  FILE_STORE_BACKEND: "postgres"
+```
+
+Alternatively, use the bundled `values-lite.yaml`:
+
+```bash
+helm install onyx ./deployment/helm/charts/onyx \
+  --namespace onyx \
+  -f ./deployment/helm/charts/onyx/values-lite.yaml
+```
+
+---
+
+## Resource recommendations
+
+The values below are the chart defaults. Tune them for your workload — Vespa in particular benefits from additional memory when indexing at scale.
+
+| Component | CPU request | CPU limit | Memory request | Memory limit |
+|-----------|------------|-----------|---------------|-------------|
+| `api` (API server) | 500m | 1000m | 1 Gi | 3 Gi |
+| `webserver` | 200m | 1000m | 512 Mi | 1 Gi |
+| `vespa` | 4000m | 8000m | 8000 Mi | 32000 Mi |
+| `opensearch` | 2000m | 4000m | 4 Gi | 8 Gi |
+| `inferenceCapability` | 2000m | 4000m | 3 Gi | 10 Gi |
+| `indexCapability` | 4000m | 6000m | 3 Gi | 6 Gi |
+| `celery_worker_docprocessing` | 500m | 1000m | 2 Gi | 12 Gi |
+| `celery_worker_docfetching` | 500m | 1000m | 2 Gi | 16 Gi |
+| `celery_worker_primary` | 500m | 1000m | 2 Gi | 4 Gi |
+| `celery_worker_light` | 250m | 2000m | 512 Mi | 4 Gi |
+| `celery_worker_heavy` | 500m | 1000m | 512 Mi | 2 Gi |
+| `celery_beat` | 500m | 1000m | 512 Mi | 1 Gi |
+
+<Tip>
+At large indexing scale, consider hosting Vespa externally (e.g., Vespa Cloud) and pointing `VESPA_HOST` at it. Disable the in-cluster `vespa` subchart with `vespa.enabled: false`.
+</Tip>
+
+---
+
+## PersistentVolumeClaim requirements
+
+The chart creates PVCs for the following stateful services:
+
+| Service | PVC name | Default size | Access mode |
+|---------|----------|-------------|-------------|
+| PostgreSQL (CloudNativePG) | Managed by operator | 10 Gi | ReadWriteOnce |
+| Vespa | `vespa-storage-da-vespa-0` | 30 Gi | ReadWriteOnce |
+| OpenSearch | `data-onyx-opensearch-master-0` | 30 Gi | ReadWriteOnce |
+| MinIO | Managed by subchart | 30 Gi | ReadWriteOnce |
+| Redis | Managed by subchart | 1 Gi | ReadWriteOnce |
+
+Set `storageClassName` in each section of `values.yaml` to match the StorageClass available in your cluster:
+
+```yaml
+postgresql:
+  cluster:
+    storage:
+      storageClass: "gp3"
+      size: 10Gi
+
+vespa:
+  volumeClaimTemplates:
+    - metadata:
+        name: vespa-storage
+      spec:
+        storageClassName: "gp3"
+        resources:
+          requests:
+            storage: 30Gi
+
+opensearch:
+  persistence:
+    storageClass: "gp3"
+    size: 30Gi
+
+minio:
+  persistence:
+    storageClass: "gp3"
+    size: 30Gi
+```
+
+<Warning>
+Vespa leaves behind its PVC when the chart is uninstalled. Delete it manually if you are completely removing Onyx:
+
+```bash
+kubectl -n onyx delete pvc vespa-storage-da-vespa-0
+```
+</Warning>
+
+---
+
+## Ingress configuration
+
+The chart uses `ingress-nginx` (aliased as `nginx`) as the in-cluster ingress controller. It is enabled by default and exposes a `LoadBalancer` service on port 80.
+
+To use an existing ingress controller instead, disable the bundled nginx and configure the `ingress` section:
+
+```yaml
+nginx:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"        # or "traefik", "alb", etc.
+  api:
+    host: onyx.example.com
+  webserver:
+    host: onyx.example.com
+```
+
+For HTTPS with Let's Encrypt (cert-manager):
+
+```yaml
+letsencrypt:
+  enabled: true
+  email: "admin@example.com"
+```
+
+---
+
+## Autoscaling
+
+The chart supports both Kubernetes HPA and KEDA ScaledObjects. HPA is the default.
+
+```yaml
+autoscaling:
+  engine: hpa    # or "keda" (requires the KEDA operator pre-installed)
+
+# Per-component autoscaling example:
+api:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+```
+
+To use KEDA, install the KEDA operator separately before changing `autoscaling.engine`. The chart no longer bundles KEDA as a dependency.
+
+---
+
+## Running as non-root
+
+By default, some Onyx containers run as root. To enforce non-root execution:
+
+```yaml
+# Apply to: celery_shared, api, webserver, indexCapability, inferenceCapability
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+
+# Vespa requires a specific UID
+vespa:
+  podSecurityContext:
+    fsGroup: 1000
+  securityContext:
+    privileged: false
+    runAsUser: 1000
+```
+
+---
+
+## Common Helm commands
+
+```bash
+# Install
+helm install onyx ./deployment/helm/charts/onyx --namespace onyx -f my-values.yaml
+
+# Upgrade (applies value changes and image updates)
+helm upgrade onyx ./deployment/helm/charts/onyx --namespace onyx -f my-values.yaml
+
+# Check rendered templates without installing
+helm template onyx ./deployment/helm/charts/onyx -f my-values.yaml
+
+# Uninstall (does not delete PVCs)
+helm uninstall onyx --namespace onyx
+
+# Port-forward the nginx service for local testing
+kubectl -n onyx port-forward service/onyx-nginx 8080:80
+```
+
+---
+
+## Enterprise Edition
+
+Multi-tenancy support is an Enterprise Edition feature. Enable it in `values.yaml`:
+
+```yaml
+configMap:
+  ENABLE_PAID_ENTERPRISE_EDITION_FEATURES: "true"
+```
+
+Contact the Onyx team for a license key before enabling Enterprise features.

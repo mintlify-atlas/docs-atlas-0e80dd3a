@@ -1,0 +1,200 @@
+---
+title: 'Environment Variables'
+description: 'Reference for the environment variables you set in your .env file to configure Onyx during deployment and operation.'
+keywords: ['environment variables', 'configuration', 'env', 'deployment', 'settings']
+---
+
+All environment variables are set in the `.env` file located in your deployment directory (next to the `docker-compose.yml` files). A template with all available variables is provided at `deployment/docker_compose/env.template`.
+
+<Note>
+  After changing any variable, restart the affected containers for the changes to take effect. Most variables require restarting `api_server`; changes to database or storage variables require restarting all services.
+</Note>
+
+---
+
+## Core settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IMAGE_TAG` | `latest` | Docker image tag to deploy. Use a pinned version (e.g. `v1.2.3`) in production for reproducible deployments. |
+| `WEB_DOMAIN` | `http://localhost:3000` | Public URL of your Onyx instance. Used for OAuth redirect URIs, email links, and CORS. |
+| `API_PREFIX` | _(empty)_ | Path prefix for all API routes. Set to `/api` if your reverse proxy cannot strip the prefix itself. |
+| `ENABLE_PAID_ENTERPRISE_EDITION_FEATURES` | `false` | Set to `true` only if you have purchased an Enterprise license. |
+| `DISABLE_TELEMETRY` | `false` | Set to `true` to opt out of anonymous usage telemetry. |
+| `MAX_ALLOWED_UPLOAD_SIZE_MB` | `250` | Hard ceiling on file upload size. Individual user limits are capped at this value. |
+| `DEFAULT_USER_FILE_MAX_UPLOAD_SIZE_MB` | `100` | Default per-user upload limit when no admin-configured value exists. |
+| `DISABLE_USER_KNOWLEDGE` | `false` | Set to `true` to prevent users from uploading personal documents to assistants. |
+| `ENABLED_CONNECTOR_TYPES` | _(empty, all enabled)_ | Comma-separated list of connector type IDs to allow. Leave empty to enable all connectors. |
+| `ONYX_QUERY_HISTORY_TYPE` | `normal` | Query history mode: `normal` (includes user emails), `anonymized`, or `disabled`. |
+| `LOG_LEVEL` | `info` | Log verbosity for all services: `debug`, `info`, `warning`, `error`. |
+
+---
+
+## Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_TYPE` | `basic` | Authentication mode: `basic`, `google_oauth`, `oidc`, or `saml`. |
+| `USER_AUTH_SECRET` | _(empty)_ | **Required in production.** Secret for signing password-reset and email verification tokens. Generate with `openssl rand -hex 32`. |
+| `ENCRYPTION_KEY_SECRET` | _(empty)_ | Encrypts connector credentials and API keys at rest. Strongly recommended. |
+| `VALID_EMAIL_DOMAINS` | _(empty, all allowed)_ | Comma-separated list of allowed email domains (e.g. `yourcompany.com`). |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | Require new users to verify their email before logging in. Requires SMTP. |
+| `ENABLE_EMAIL_INVITES` | `false` | Enable invite-only registration. Admins send invite links from the Users page. |
+| `SESSION_EXPIRE_TIME_SECONDS` | `604800` | Session lifetime in seconds. Default is 7 days. |
+| `PASSWORD_MIN_LENGTH` | `8` | Minimum password length. |
+| `PASSWORD_MAX_LENGTH` | `64` | Maximum password length. |
+| `PASSWORD_REQUIRE_UPPERCASE` | `false` | Require at least one uppercase letter. |
+| `PASSWORD_REQUIRE_LOWERCASE` | `false` | Require at least one lowercase letter. |
+| `PASSWORD_REQUIRE_DIGIT` | `false` | Require at least one numeric digit. |
+| `PASSWORD_REQUIRE_SPECIAL_CHAR` | `false` | Require at least one special character (`!@#$%^&*` etc.). |
+| `RATE_LIMIT_WINDOW_SECONDS` | _(disabled)_ | Time window for auth rate limiting. Must be set together with `RATE_LIMIT_MAX_REQUESTS`. |
+| `RATE_LIMIT_MAX_REQUESTS` | _(disabled)_ | Maximum auth requests per IP per window. |
+
+### Google OAuth
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OAUTH_CLIENT_ID` | _(empty)_ | Google OAuth client ID (also accepted as `GOOGLE_OAUTH_CLIENT_ID`). |
+| `OAUTH_CLIENT_SECRET` | _(empty)_ | Google OAuth client secret (also accepted as `GOOGLE_OAUTH_CLIENT_SECRET`). |
+
+### OIDC
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENID_CONFIG_URL` | _(empty)_ | OIDC discovery endpoint (the `.well-known/openid-configuration` URL from your IdP). |
+| `OIDC_PKCE_ENABLED` | `false` | Enable PKCE for the OIDC authorization flow. |
+| `OIDC_SCOPE_OVERRIDE` | _(empty)_ | Comma-separated list of scopes to request, overriding the defaults. |
+
+### SAML
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SAML_CONF_DIR` | `/app/onyx/configs/saml_config` | Path inside the container to the directory holding your IdP metadata and SAML configuration files. |
+
+---
+
+## LLM settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEN_AI_API_KEY` | _(empty)_ | Fallback API key used when no provider-specific key is configured in the admin UI. |
+| `GEN_AI_MAX_TOKENS` | _(model default)_ | Override the maximum output token limit for LLM responses. |
+| `DISABLE_LITELLM_STREAMING` | `false` | Set to `true` to disable streaming responses from LiteLLM. |
+| `LITELLM_EXTRA_HEADERS` | _(empty)_ | JSON object of extra HTTP headers to send with every LiteLLM request (e.g. for proxy authentication). |
+| `LITELLM_CUSTOM_ERROR_MESSAGE_MAPPINGS` | _(empty)_ | JSON object mapping provider error substrings to user-friendly messages. |
+| `GENERATIVE_MODEL_ACCESS_CHECK_FREQ` | `86400` | How often (in seconds) Onyx verifies that the configured LLM is still accessible. |
+| `ENABLE_CONTEXTUAL_RAG` | `false` | Enable contextual RAG, which adds per-chunk LLM-generated context during indexing. Increases indexing cost. |
+| `LOG_ONYX_MODEL_INTERACTIONS` | `false` | Log all prompts and LLM responses for debugging. Do not enable in production with sensitive data. |
+| `SEND_USER_METADATA_TO_LLM_PROVIDER` | `false` | Send user ID and session ID to the LLM provider in API calls. Disabled by default for privacy. |
+
+---
+
+## Search and indexing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INDEX_BATCH_SIZE` | `16` | Number of documents processed per indexing batch. |
+| `ENABLE_MULTIPASS_INDEXING` | `false` | Store additional fine-grained chunk vectors for improved recall. Increases index size and indexing time. |
+| `MAX_DOCUMENT_CHARS` | `5000000` | Maximum characters per document. Documents exceeding this limit are truncated at indexing time. |
+| `MAX_FILE_SIZE_BYTES` | `2147483648` | Maximum file size (in bytes) that a connector will attempt to index. Default is 2 GB. |
+| `SKIP_METADATA_IN_CHUNK` | `false` | Omit document-level metadata from each chunk. Reduces chunk size but may reduce answer quality for metadata-heavy documents. |
+| `CONTINUE_ON_CONNECTOR_FAILURE` | `false` | Allow indexing to continue when individual documents fail to process. |
+| `DISABLE_INDEX_UPDATE_ON_SWAP` | `false` | Pause primary index updates while a new embedding model index is being built in the background. |
+| `CELERY_WORKER_DOCPROCESSING_CONCURRENCY` | `6` | Number of parallel document processing workers. Increase for faster indexing on machines with more CPU/RAM. |
+| `CELERY_WORKER_DOCFETCHING_CONCURRENCY` | `1` | Number of parallel document fetching workers. |
+| `INDEXING_EMBEDDING_MODEL_NUM_THREADS` | `8` | Threads used for parallel embedding API calls during indexing. |
+| `RECENCY_BIAS_MULTIPLIER` | `1.0` | Weight applied to document recency in search ranking. Values above 1.0 favor newer documents. |
+
+### Vespa (vector search)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VESPA_HOST` | `localhost` | Hostname of the Vespa application node. In Docker Compose, this is `index`. |
+| `VESPA_PORT` | `8081` | Vespa application HTTP port. |
+| `VESPA_LANGUAGE_OVERRIDE` | _(empty)_ | Force Vespa to use a specific language for text analysis (e.g. `de` for German). |
+
+### OpenSearch (keyword search)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENSEARCH_HOST` | `localhost` | OpenSearch hostname. |
+| `OPENSEARCH_ADMIN_USERNAME` | `admin` | OpenSearch admin username. |
+| `OPENSEARCH_ADMIN_PASSWORD` | `StrongPassword123!` | OpenSearch admin password. Change this in production. |
+| `OPENSEARCH_TEXT_ANALYZER` | `english` | Text analyzer for full-text fields. Use a language-specific analyzer (e.g. `german`) for non-English corpora. Changing this requires a full reindex. |
+
+---
+
+## Storage
+
+### PostgreSQL
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_USER` | `postgres` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | `password` | PostgreSQL password. **Change this before going to production.** |
+| `POSTGRES_DB` | `postgres` | PostgreSQL database name. |
+| `POSTGRES_HOST` | `127.0.0.1` | PostgreSQL hostname. In Docker Compose, this is `relational_db`. |
+| `POSTGRES_PORT` | `5432` | PostgreSQL port. |
+| `POSTGRES_API_SERVER_POOL_SIZE` | `40` | Number of persistent connections in the API server connection pool. |
+| `POSTGRES_POOL_RECYCLE` | `1200` | Recycle connections older than this many seconds (default 20 minutes). |
+| `USE_IAM_AUTH` | `false` | Use AWS IAM authentication for PostgreSQL instead of a username/password. |
+
+### Redis
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_HOST` | `localhost` | Redis hostname. In Docker Compose, this is `cache`. |
+| `REDIS_PORT` | `6379` | Redis port. |
+| `REDIS_PASSWORD` | _(empty)_ | Redis password. Set this if your Redis instance requires authentication. |
+| `REDIS_SSL` | `false` | Enable TLS for Redis connections. |
+| `USE_REDIS_IAM_AUTH` | `false` | Use AWS IAM authentication for Redis ElastiCache. |
+
+### File storage (MinIO / S3)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FILE_STORE_BACKEND` | `s3` | File storage backend: `s3` (MinIO or AWS S3) or `postgres`. |
+| `S3_ENDPOINT_URL` | _(empty)_ | S3-compatible endpoint URL. Set to `http://minio:9000` when using the bundled MinIO. Leave empty for AWS S3. |
+| `S3_AWS_ACCESS_KEY_ID` | _(empty)_ | S3/MinIO access key ID. |
+| `S3_AWS_SECRET_ACCESS_KEY` | _(empty)_ | S3/MinIO secret access key. |
+| `S3_FILE_STORE_BUCKET_NAME` | `onyx-file-store-bucket` | S3 bucket name for stored files. |
+| `MINIO_ROOT_USER` | `minioadmin` | MinIO root username (only used by the MinIO container itself). |
+| `MINIO_ROOT_PASSWORD` | `minioadmin` | MinIO root password. **Change this in production.** |
+
+---
+
+## Email / SMTP
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SMTP_SERVER` | _(empty)_ | SMTP server hostname (e.g. `smtp.sendgrid.net`). |
+| `SMTP_PORT` | `587` | SMTP port. |
+| `SMTP_USER` | _(empty)_ | SMTP username. |
+| `SMTP_PASS` | _(empty)_ | SMTP password. |
+| `EMAIL_FROM` | _(same as SMTP_USER)_ | From address for Onyx-sent emails. |
+| `SENDGRID_API_KEY` | _(empty)_ | SendGrid API key. When set, Onyx uses SendGrid instead of direct SMTP. |
+
+---
+
+## MCP server
+
+The Model Context Protocol (MCP) server lets external MCP clients interact with Onyx as a tool.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_SERVER_ENABLED` | `false` | Set to `true` to enable the MCP server. |
+| `MCP_SERVER_PORT` | `8090` | Port the MCP server listens on. |
+| `MCP_SERVER_CORS_ORIGINS` | _(empty)_ | Comma-separated list of allowed CORS origins for MCP clients. |
+
+---
+
+## Where to find all variables
+
+The full list of recognized variables is maintained in two places:
+
+- `deployment/docker_compose/env.template` — the template you copy to `.env`, organized by category with inline comments.
+- `backend/onyx/configs/app_configs.py` — the authoritative Python source that reads every variable with its default value.
+
+<Tip>
+  Start with the template file. It is organized into sections (commonly modified, services, advanced), and variables that are safe to ignore for most deployments are commented out. Only uncomment and set what you actually need.
+</Tip>

@@ -1,0 +1,92 @@
+---
+title: "Performance & Scaling"
+description: "Hardware recommendations, tuning knobs, and scaling guidance for Onyx deployments."
+---
+
+## Hardware recommendations
+
+| Deployment size | Users | CPU | RAM | Disk |
+|---|---|---|---|---|
+| Small | 1–20 | 4 cores | 16 GB | 100 GB SSD |
+| Medium | 20–200 | 8 cores | 32 GB | 500 GB SSD |
+| Large | 200–1000+ | 16+ cores | 64+ GB | 1+ TB SSD |
+
+<Note>
+  Vespa (the vector search index) and the embedding model server are the dominant memory consumers. Budget at least 8 GB for Vespa and 4–8 GB for the model server alone.
+</Note>
+
+## Resource-intensive services
+
+<CardGroup cols={2}>
+  <Card title="Vespa (index)" icon="database">
+    Holds all document embeddings in memory for fast search. Requires the most RAM — plan 1–2 GB per million document chunks.
+  </Card>
+  <Card title="model_server" icon="microchip">
+    Runs the embedding model (and optionally a local LLM). GPU acceleration dramatically speeds up indexing. CPU-only is fine for small deployments.
+  </Card>
+  <Card title="background (Celery)" icon="gears">
+    Handles all connector syncing and document processing. Concurrency is tunable via env vars.
+  </Card>
+  <Card title="api_server" icon="server">
+    Generally lightweight. Scales horizontally if needed (requires shared Postgres/Redis).
+  </Card>
+</CardGroup>
+
+## Tuning Celery worker concurrency
+
+Set these in your `.env` file:
+
+| Variable | Default | Description |
+|---|---|---|
+| `CELERY_WORKER_DOCFETCHING_CONCURRENCY` | `1` | Threads fetching documents from connectors |
+| `CELERY_WORKER_DOCPROCESSING_CONCURRENCY` | `6` | Threads processing and indexing fetched documents |
+| `CELERY_WORKER_LIGHT_CONCURRENCY` | _(system default)_ | Threads for lightweight tasks (permission sync, etc.) |
+
+Increase these on machines with more CPU cores to speed up bulk indexing. Keep `DOCPROCESSING` in proportion with the model server's capacity — pushing too many embedding requests will cause queuing.
+
+## Embedding model tradeoffs
+
+Choose your embedding model in **Admin → Embeddings**:
+
+| Model | Speed | Accuracy | Notes |
+|---|---|---|---|
+| `nomic-embed-text` | Fast | Good | Good default for most deployments |
+| `cohere-embed-english-v3.0` | Medium | Great | Requires Cohere API key |
+| `text-embedding-3-large` | Medium | Great | Requires OpenAI API key |
+| Local models (via model_server) | Varies | Good | Air-gapped deployments |
+
+<Warning>
+  Changing the embedding model requires re-indexing all documents. Plan for downtime or run a parallel index before switching.
+</Warning>
+
+## Docker Compose vs Kubernetes
+
+<AccordionGroup>
+  <Accordion title="When to use Docker Compose">
+    - Teams under ~200 users
+    - Single-server deployments
+    - Simpler ops with less Kubernetes expertise required
+    - Fastest path to production
+  </Accordion>
+  <Accordion title="When to move to Kubernetes">
+    - Need horizontal scaling of `api_server` or background workers
+    - Require zero-downtime rolling deployments
+    - Multi-tenant Enterprise Edition deployments
+    - Already running a Kubernetes cluster for other workloads
+  </Accordion>
+</AccordionGroup>
+
+## Caching
+
+Onyx uses Redis for caching LLM provider configs, user sessions, and feature flags. The default `redis:7.4-alpine` container works for most deployments. For high-traffic installations, consider:
+
+- Increasing `REDIS_MAXMEMORY` (default is 25% of system RAM)
+- Using a managed Redis service (AWS ElastiCache, GCP Memorystore) for reliability
+
+## Connector sync frequency
+
+Connector sync intervals are configurable per connector from the Admin UI. For large knowledge bases:
+
+- Set high-frequency syncs (every 10 min) only for connectors with rapidly changing content (Slack, email)
+- Weekly or daily syncs are sufficient for slower-moving sources (Confluence, Notion, Google Drive)
+- Stagger sync schedules across connectors to avoid spikes in Celery queue depth

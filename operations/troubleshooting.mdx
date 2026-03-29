@@ -1,0 +1,131 @@
+---
+title: "Troubleshooting"
+description: "Diagnose and fix common issues with your Onyx deployment."
+---
+
+## Checking service health
+
+Start here whenever something isn't working.
+
+<CodeGroup>
+```bash Docker Compose
+# See status of all services
+docker compose ps
+
+# Tail logs for a specific service
+docker compose logs -f api_server
+docker compose logs -f web_server
+docker compose logs -f background
+
+# Check Vespa (search index) health
+curl http://localhost:19071/state/v1/health
+```
+
+```bash Kubernetes
+# Pod status
+kubectl get pods -n onyx
+
+# Logs for a pod
+kubectl logs -n onyx deployment/onyx-api-server --tail=100
+
+# Describe a crashing pod
+kubectl describe pod -n onyx <pod-name>
+```
+</CodeGroup>
+
+In development, all service logs are also written to `backend/log/<service>_debug.log`.
+
+## Common issues
+
+<AccordionGroup>
+  <Accordion title="Connector not syncing / stuck in 'in progress'">
+    1. Go to **Admin → Connectors** and check the connector's sync status and last error message.
+    2. Check the background worker logs:
+       ```bash
+       docker compose logs -f background
+       ```
+    3. Verify the credentials are still valid — re-authenticate if the token expired.
+    4. If the connector is stuck for more than 30 minutes, restart the background service:
+       ```bash
+       docker compose restart background
+       ```
+  </Accordion>
+
+  <Accordion title="Chat returns an error or no response">
+    1. Go to **Admin → LLM Providers** and confirm your API key is saved and the model is active.
+    2. Test the LLM connection directly from the admin panel using the **Test** button.
+    3. Check `api_server` logs for error details:
+       ```bash
+       docker compose logs -f api_server | grep -i error
+       ```
+    4. If using a self-hosted model (Ollama, vLLM), confirm the model server is reachable from within the Docker network.
+  </Accordion>
+
+  <Accordion title="Search returns no results">
+    1. Confirm at least one connector has completed a sync and indexed documents.
+    2. Check Vespa health:
+       ```bash
+       curl http://localhost:19071/state/v1/health
+       ```
+    3. Check the `index` container logs for indexing errors:
+       ```bash
+       docker compose logs -f index
+       ```
+    4. Verify the embedding model server is running:
+       ```bash
+       docker compose logs -f model_server
+       ```
+  </Accordion>
+
+  <Accordion title="Authentication / login not working">
+    1. For OAuth (Google, GitHub), confirm the callback URL in your OAuth app settings matches your Onyx deployment URL exactly.
+    2. For OIDC/SAML, check that `AUTH_TYPE`, `OAUTH_CLIENT_ID`, and related env vars are set in `.env`.
+    3. Check `api_server` logs for auth-related errors on login attempts.
+    4. For invite-only deployments, confirm the user's email was invited before they tried to sign up.
+  </Accordion>
+
+  <Accordion title="Container keeps restarting">
+    Check the exit code and last log lines:
+    ```bash
+    docker compose logs --tail=50 <service_name>
+    ```
+    Common causes:
+    - **Postgres not ready**: `api_server` and `background` wait for Postgres, but may time out if the DB is slow to start. Restart the affected service.
+    - **Missing env var**: A required variable like `AUTH_SECRET` or `POSTGRES_PASSWORD` is not set in `.env`.
+    - **Port conflict**: Another process is using port 80, 8080, or 5432. Check with `ss -tulnp`.
+  </Accordion>
+
+  <Accordion title="Out of memory / OOM kills">
+    Vespa and the embedding model server are the most memory-intensive services.
+    - Increase Docker Desktop's memory limit (Mac/Windows) or the host's available RAM.
+    - Use Lite mode to reduce resource usage:
+      ```bash
+      docker compose -f docker-compose.yml -f docker-compose.onyx-lite.yml up -d
+      ```
+    - Reduce `VESPA_SEARCHER_THREADS` in `.env` (default: 2 per node).
+    - Use a smaller embedding model via **Admin → Embeddings**.
+  </Accordion>
+
+  <Accordion title="Postgres connection errors">
+    Connect directly to debug:
+    ```bash
+    docker exec -it onyx-relational_db-1 psql -U postgres
+    ```
+    Check active connections:
+    ```sql
+    SELECT count(*), state FROM pg_stat_activity GROUP BY state;
+    ```
+    If connections are exhausted, increase `POSTGRES_POOL_SIZE` in `.env` or restart the API server.
+  </Accordion>
+</AccordionGroup>
+
+## Getting support
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/onyx-dot-app/onyx/issues">
+    Report bugs or search existing issues.
+  </Card>
+  <Card title="Discord Community" icon="discord" href="https://discord.gg/TDJ59cGV2X">
+    Ask questions and get help from the community.
+  </Card>
+</CardGroup>

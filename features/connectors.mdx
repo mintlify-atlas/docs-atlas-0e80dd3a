@@ -1,0 +1,153 @@
+---
+title: "Connectors"
+description: "Connect Onyx to your existing tools and data sources. Every connector syncs documents into the search index with permission-aware access controls."
+keywords: ["connectors", "integrations", "sync", "data sources", "indexing"]
+---
+
+Connectors pull content from your existing tools into Onyx's search index. Once a connector is set up and syncing, the documents it indexes are immediately available for search and chat — with permissions from the source application automatically enforced.
+
+## How connectors work
+
+Every connector follows the same lifecycle:
+
+<Steps>
+  <Step title="Provide credentials">
+    Each connector requires credentials — an OAuth token, API key, or service account — that Onyx uses to read from the source. Credentials are stored encrypted and are never exposed in the UI after saving.
+  </Step>
+  <Step title="Create the connector">
+    In **Admin → Connectors**, click **Add connector**, select the integration type, and configure the scope: which workspace, repository, folder, or channel to sync.
+  </Step>
+  <Step title="First sync">
+    Onyx performs an initial full sync to index all accessible documents. For large sources this may take several minutes to hours.
+  </Step>
+  <Step title="Incremental syncs">
+    After the first sync, Onyx polls for changes on a schedule (configurable per connector, defaulting to every 30 minutes). Only new or modified documents are re-indexed.
+  </Step>
+  <Step title="Permission sync">
+    Alongside document content, Onyx records which users and groups can access each document. These ACLs are refreshed on every sync so that a user searching Onyx sees exactly the same documents they could access in the source app.
+  </Step>
+</Steps>
+
+## Connector categories
+
+<CardGroup cols={3}>
+  <Card title="Communication" icon="message">
+    Slack, Microsoft Teams, Discord, Gmail, IMAP
+  </Card>
+  <Card title="Project management" icon="list-check">
+    Jira, Asana, Linear, ClickUp
+  </Card>
+  <Card title="Knowledge bases" icon="book">
+    Confluence, Notion, BookStack, Outline, Slab, Guru, Coda, Gitbook
+  </Card>
+  <Card title="Code" icon="code">
+    GitHub, GitLab, Bitbucket
+  </Card>
+  <Card title="Storage" icon="hard-drive">
+    Google Drive, Dropbox, SharePoint, Egnyte, Blob storage
+  </Card>
+  <Card title="CRM & sales" icon="handshake">
+    Salesforce, HubSpot
+  </Card>
+</CardGroup>
+
+## Full connector list
+
+### Communication
+
+| Connector | Directory | Notes |
+|---|---|---|
+| Slack | `connectors/slack/` | Public and private channels; direct messages with permission |
+| Microsoft Teams | `connectors/teams/` | Channels and chat messages via Microsoft Graph |
+| Discord | `connectors/discord/` | Guild channels |
+| Gmail | `connectors/gmail/` | Individual mailboxes via Google Workspace |
+| IMAP | `connectors/imap/` | Any IMAP-compatible mail server |
+| Gong | `connectors/gong/` | Sales call transcripts |
+| Fireflies | `connectors/fireflies/` | Meeting transcripts |
+| Zulip | `connectors/zulip/` | Channels and streams |
+
+### Project management
+
+| Connector | Directory | Notes |
+|---|---|---|
+| Jira | `connectors/jira/` | Issues, comments, and epics |
+| Asana | `connectors/asana/` | Tasks and projects |
+| Linear | `connectors/linear/` | Issues and cycles |
+| ClickUp | `connectors/clickup/` | Tasks, docs, and spaces |
+| Productboard | `connectors/productboard/` | Feature notes and insights |
+| Airtable | `connectors/airtable/` | Bases and tables |
+| Testrail | `connectors/testrail/` | Test cases and runs |
+| Request Tracker | `connectors/requesttracker/` | RT tickets |
+
+### Knowledge bases & wikis
+
+| Connector | Directory | Notes |
+|---|---|---|
+| Confluence | `connectors/confluence/` | Spaces, pages, and blog posts |
+| Notion | `connectors/notion/` | Pages and databases |
+| BookStack | `connectors/bookstack/` | Books, chapters, and pages |
+| Outline | `connectors/outline/` | Collections and documents |
+| Slab | `connectors/slab/` | Posts and topics |
+| Guru | `connectors/guru/` | Cards and collections |
+| Coda | `connectors/coda/` | Docs and tables |
+| Gitbook | `connectors/gitbook/` | Spaces and pages |
+| Document360 | `connectors/document360/` | Knowledge base articles |
+| Loopio | `connectors/loopio/` | RFP library entries |
+| Axero | `connectors/axero/` | Community and wiki content |
+| Drupal Wiki | `connectors/drupal_wiki/` | Articles and taxonomies |
+| MediaWiki | `connectors/mediawiki/` | Wiki pages (Wikipedia-style) |
+| Wikipedia | `connectors/wikipedia/` | Public Wikipedia articles |
+| Canvas | `connectors/canvas/` | Course content |
+| Highspot | `connectors/highspot/` | Sales enablement content |
+| Discourse | `connectors/discourse/` | Forum threads and posts |
+| Xenforo | `connectors/xenforo/` | Forum threads |
+| Freshdesk | `connectors/freshdesk/` | Support articles and tickets |
+| Zendesk | `connectors/zendesk/` | Help centre articles and tickets |
+
+### Code & version control
+
+| Connector | Directory | Notes |
+|---|---|---|
+| GitHub | `connectors/github/` | Issues, pull requests, and files |
+| GitLab | `connectors/gitlab/` | Issues, MRs, and repository files |
+| Bitbucket | `connectors/bitbucket/` | Issues, pull requests, and files |
+
+### Storage & files
+
+| Connector | Directory | Notes |
+|---|---|---|
+| Google Drive | `connectors/google_drive/` | Files and shared drives |
+| Google Sites | `connectors/google_site/` | Published sites |
+| Dropbox | `connectors/dropbox/` | Files and folders |
+| SharePoint | `connectors/sharepoint/` | Sites and document libraries |
+| Egnyte | `connectors/egnyte/` | Files and folders |
+| Blob storage | `connectors/blob/` | S3, Azure Blob, GCS |
+| Web crawler | `connectors/web/` | Crawls public web pages |
+| File upload | `connectors/file/` | Direct file uploads via the UI |
+
+### CRM & sales
+
+| Connector | Directory | Notes |
+|---|---|---|
+| Salesforce | `connectors/salesforce/` | Accounts, contacts, cases, and custom objects |
+| HubSpot | `connectors/hubspot/` | Contacts, deals, tickets, and notes |
+
+## Document permissioning
+
+Onyx mirrors access controls from the source application so users only see what they are already authorised to access.
+
+<AccordionGroup>
+  <Accordion title="How permission sync works">
+    Each connector implements `validate_perm_sync()` from `BaseConnector`. During sync, Onyx reads the ACL for every document (e.g., Google Drive sharing settings, Confluence page restrictions, GitHub repository visibility) and stores a permission record alongside the indexed content. At query time, results are filtered against the requesting user's identity so only permitted documents are returned.
+  </Accordion>
+  <Accordion title="Group sync">
+    For connectors that support group-based permissions (Confluence, GitHub, Google Workspace), Onyx also syncs group membership. When a user is added to or removed from a group in the source app, their access in Onyx is updated on the next permission sync.
+  </Accordion>
+  <Accordion title="Public vs. private connectors">
+    Some connectors (web crawler, file upload, Wikipedia) index publicly accessible content and make it available to all users. For connectors backed by authenticated services, documents are private by default and only surfaced to users whose identity can be verified against the source ACL.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+If a connector's credentials expire or are revoked, syncing stops and documents already indexed remain accessible until the next successful sync. Re-authorise the connector in **Admin → Connectors** to resume syncing.
+</Warning>

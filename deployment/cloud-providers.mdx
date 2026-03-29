@@ -1,0 +1,239 @@
+---
+title: "Cloud Provider Guides"
+description: "Onyx runs on any cloud that supports Kubernetes or Docker. This page covers supported platforms and guidance for AWS, Azure, and GCP deployments."
+keywords: ["aws", "azure", "gcp", "cloud", "eks", "ecs", "fargate", "onyx deploy"]
+---
+
+## Overview
+
+Onyx can be deployed on any cloud provider that supports:
+
+- **Docker Compose** — any Linux VM with Docker installed (see [Docker Compose](/deployment/docker))
+- **Kubernetes** — any managed Kubernetes service (see [Kubernetes](/deployment/kubernetes))
+- **Terraform** — AWS is fully supported via the modules in `deployment/terraform/modules/aws/`
+
+<Note>
+The Terraform modules in the repository target AWS exclusively. For Azure and GCP, use the Helm chart on AKS or GKE and manage the underlying cloud resources (databases, object storage, caches) with your preferred tooling.
+</Note>
+
+---
+
+## AWS
+
+AWS is the most thoroughly supported cloud target. The repository ships Terraform modules that provision a production-ready stack end-to-end.
+
+<CardGroup cols={2}>
+  <Card title="EKS (recommended)" icon="dharmachakra" href="/deployment/kubernetes">
+    Deploy Onyx on Amazon EKS using the Helm chart. The Terraform `eks` module provisions the cluster, node groups, EBS CSI driver, metrics server, and cluster autoscaler.
+  </Card>
+  <Card title="Terraform quickstart" icon="code" href="/deployment/terraform">
+    Use the `onyx` Terraform module to provision a complete AWS stack (VPC, EKS, RDS, ElastiCache, S3, optional OpenSearch) with a single `terraform apply`.
+  </Card>
+</CardGroup>
+
+### AWS module summary
+
+The `deployment/terraform/modules/aws/` directory contains:
+
+| Module | What it creates |
+|--------|----------------|
+| `onyx` | Top-level composition — wires all modules below together |
+| `vpc` | VPC with public/private subnets and S3 gateway endpoint |
+| `eks` | EKS cluster, managed node groups, addons, optional IRSA |
+| `postgres` | RDS for PostgreSQL; returns a connection URL |
+| `redis` | ElastiCache for Redis with optional auth token |
+| `s3` | S3 bucket locked to the VPC endpoint |
+| `opensearch` | Amazon OpenSearch domain (opt-in) |
+| `waf` | AWS WAF with rate limiting and CloudWatch logging |
+
+### ECS / Fargate
+
+An ECS Fargate configuration exists in the repository. It targets teams that prefer a serverless container runtime over Kubernetes.
+
+<Note>
+The ECS/Fargate configuration does not have a corresponding Terraform module in the current repository structure. Use it as a reference when defining your own ECS task definitions and services.
+</Note>
+
+### Managed services on AWS
+
+When running on AWS, prefer managed services over the in-cluster alternatives bundled with the Helm chart:
+
+| Onyx component | Recommended AWS service | Notes |
+|----------------|------------------------|-------|
+| PostgreSQL (`relational_db`) | Amazon RDS for PostgreSQL | Disable `postgresql.enabled` in Helm values; supply `POSTGRES_HOST` via configMap |
+| Redis (`cache`) | Amazon ElastiCache for Redis | Disable `redis.enabled`; supply `REDIS_HOST` |
+| File store (`minio`) | Amazon S3 | Disable `minio.enabled`; configure IRSA or static credentials |
+| OpenSearch (`opensearch`) | Amazon OpenSearch Service | Disable `opensearch.enabled`; supply `OPENSEARCH_HOST` |
+
+---
+
+## Azure
+
+Onyx runs on Azure Kubernetes Service (AKS). There are no Azure-specific Terraform modules in the repository; provision your cluster and managed services with the Azure CLI, Bicep, or your own Terraform configuration, then install Onyx using the Helm chart.
+
+### Recommended Azure services
+
+| Onyx component | Recommended Azure service |
+|----------------|--------------------------|
+| PostgreSQL | Azure Database for PostgreSQL – Flexible Server |
+| Redis | Azure Cache for Redis |
+| File store | Azure Blob Storage (configure an S3-compatible endpoint or use the `postgres` file store backend) |
+| Kubernetes | Azure Kubernetes Service (AKS) |
+
+### AKS deployment steps
+
+<Steps>
+  <Step title="Provision an AKS cluster">
+    ```bash
+    az aks create \
+      --resource-group my-rg \
+      --name onyx-aks \
+      --node-count 3 \
+      --node-vm-size Standard_D8s_v3 \
+      --enable-addons monitoring \
+      --generate-ssh-keys
+    ```
+  </Step>
+  <Step title="Get credentials">
+    ```bash
+    az aks get-credentials --resource-group my-rg --name onyx-aks
+    ```
+  </Step>
+  <Step title="Install Onyx via Helm">
+    Follow the [Kubernetes deployment guide](/deployment/kubernetes). Disable the in-cluster databases and point Onyx at your Azure managed services via `configMap` in `values.yaml`:
+
+    ```yaml
+    configMap:
+      POSTGRES_HOST: "my-server.postgres.database.azure.com"
+      REDIS_HOST: "my-cache.redis.cache.windows.net"
+
+    postgresql:
+      enabled: false
+
+    redis:
+      enabled: false
+
+    minio:
+      enabled: false
+    ```
+  </Step>
+</Steps>
+
+---
+
+## GCP
+
+Onyx runs on Google Kubernetes Engine (GKE). There are no GCP-specific Terraform modules in the repository; use the Helm chart after provisioning your cluster and managed services.
+
+### Recommended GCP services
+
+| Onyx component | Recommended GCP service |
+|----------------|------------------------|
+| PostgreSQL | Cloud SQL for PostgreSQL |
+| Redis | Memorystore for Redis |
+| File store | Cloud Storage (via S3-compatible interoperability endpoint or `postgres` backend) |
+| Kubernetes | Google Kubernetes Engine (GKE) |
+
+### GKE deployment steps
+
+<Steps>
+  <Step title="Create a GKE cluster">
+    ```bash
+    gcloud container clusters create onyx-gke \
+      --zone us-central1-a \
+      --num-nodes 3 \
+      --machine-type n2-standard-8
+    ```
+  </Step>
+  <Step title="Get credentials">
+    ```bash
+    gcloud container clusters get-credentials onyx-gke --zone us-central1-a
+    ```
+  </Step>
+  <Step title="Install Onyx via Helm">
+    Follow the [Kubernetes deployment guide](/deployment/kubernetes). Disable the in-cluster databases and reference your Cloud SQL and Memorystore endpoints:
+
+    ```yaml
+    configMap:
+      POSTGRES_HOST: "10.x.x.x"          # Cloud SQL private IP
+      REDIS_HOST: "10.x.x.x"             # Memorystore IP
+
+    postgresql:
+      enabled: false
+
+    redis:
+      enabled: false
+
+    minio:
+      enabled: false
+    ```
+  </Step>
+</Steps>
+
+---
+
+## General guidance for all cloud providers
+
+### Use managed databases
+
+Running PostgreSQL and Redis as in-cluster containers (the default Helm chart behaviour) is convenient for getting started but not recommended for production. Managed services provide automated backups, high availability, and simplified operations.
+
+| In-cluster service | Managed replacement |
+|--------------------|-------------------|
+| `relational_db` (postgres:15.2-alpine) | RDS, Cloud SQL, Azure Database for PostgreSQL |
+| `cache` (redis:7.4-alpine) | ElastiCache, Memorystore, Azure Cache for Redis |
+| `minio` (S3-compatible) | S3, Cloud Storage, Azure Blob Storage |
+
+To switch Onyx to an external database, disable the subchart and set the host in `configMap`:
+
+```yaml
+postgresql:
+  enabled: false
+
+configMap:
+  POSTGRES_HOST: "your-managed-db-host"
+  POSTGRES_USER: "onyx"
+  POSTGRES_PASSWORD: "..."       # or use auth.postgresql.existingSecret
+```
+
+### Object storage for file store
+
+Onyx supports two file store backends:
+
+- **`s3`** (default) — S3-compatible storage. Works with AWS S3, GCS interoperability endpoint, Azure Blob via compatible gateway, or the in-cluster MinIO.
+- **`postgres`** — stores files in PostgreSQL. No extra service required; suitable for lite deployments or when object storage is unavailable.
+
+```yaml
+configMap:
+  FILE_STORE_BACKEND: "s3"
+  S3_ENDPOINT_URL: "https://storage.googleapis.com"   # GCS example
+  S3_FILE_STORE_BUCKET_NAME: "onyx-files"
+```
+
+### Persistent storage (Kubernetes)
+
+Ensure your cluster has a default StorageClass that provisions `ReadWriteOnce` volumes. On each cloud provider:
+
+| Provider | Recommended StorageClass |
+|----------|------------------------|
+| AWS EKS | `gp3` (provisioned by EBS CSI driver) |
+| AKS | `managed-premium` or `managed-csi` |
+| GKE | `standard-rwo` (provisioned by GCE CSI driver) |
+
+Set `storageClassName` on the Vespa, OpenSearch, MinIO, and PostgreSQL sections of `values.yaml`. See [Kubernetes](/deployment/kubernetes) for the full PVC reference.
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="docker" href="/deployment/docker">
+    Deploy on a single VM with Docker Compose — the fastest path to a running instance.
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/deployment/kubernetes">
+    Full Helm chart reference for Kubernetes deployments on any cluster.
+  </Card>
+  <Card title="Terraform (AWS)" icon="code" href="/deployment/terraform">
+    Provision a complete AWS stack with the official Terraform modules.
+  </Card>
+</CardGroup>

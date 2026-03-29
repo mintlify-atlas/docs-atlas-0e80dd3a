@@ -1,0 +1,150 @@
+---
+title: 'Permissions & RBAC'
+description: 'How Onyx controls access to documents, connectors, and assistants through user roles, groups, and document-level permissions.'
+keywords: ['RBAC', 'permissions', 'access control', 'roles', 'groups', 'document permissions', 'curator']
+---
+
+Onyx uses a layered access control model that combines role-based permissions with document-level permissioning mirrored from your connected data sources. This means the right people see the right information—both in source apps and in Onyx search results.
+
+## Access control layers
+
+Onyx applies access control at two distinct levels:
+
+<CardGroup cols={2}>
+  <Card title="Role-based access" icon="user-shield">
+    Controls what actions a user can perform: managing connectors, changing settings, curating documents.
+  </Card>
+  <Card title="Document-level permissions" icon="file-lock">
+    Controls which documents appear in search results, regardless of the user's role.
+  </Card>
+</CardGroup>
+
+A user's role determines what they can *do*. Document permissions determine what they can *see*. Both apply independently.
+
+## User roles
+
+| Role | Admin actions | Group scope | Notes |
+|------|--------------|-------------|-------|
+| **Admin** | All | All groups | Full platform control |
+| **Global Curator** | Connector & document management | All groups they belong to | Cannot change roles or system settings |
+| **Curator** | Connector & document management | Only assigned groups | Designated per-group by an Admin |
+| **Basic** | None | — | Standard end user |
+| **Limited** | None | — | Restricted API access only |
+
+<Note>
+  Role updates are handled through a separate admin-only process. Users cannot change their own role, and an admin cannot demote their own account.
+</Note>
+
+## Document-level permissions
+
+Onyx mirrors permissions from source applications. If a user does not have access to a document in its origin system, that document will not appear in their Onyx search results—even if the connector has been indexed.
+
+### How it works
+
+<Steps>
+  <Step title="Connector sync">
+    When a connector runs, Onyx fetches documents along with the access control lists (ACLs) defined in the source system.
+  </Step>
+  <Step title="Permission storage">
+    Each document's permitted users and groups are stored alongside the document in the index.
+  </Step>
+  <Step title="Query-time filtering">
+    When a user searches or chats, Onyx filters results to only include documents that user is permitted to see, based on the stored ACLs.
+  </Step>
+</Steps>
+
+### Examples by connector
+
+- **Confluence**: If a Confluence space is restricted to the Engineering team, only Engineering team members see pages from that space in Onyx.
+- **Google Drive**: Documents shared with specific users or Google Groups are only surfaced to those users in Onyx.
+- **Slack**: Messages from private channels only appear for users who are members of that channel.
+
+<Tip>
+  You do not need to manually configure document permissions in Onyx. They are inherited from the source system automatically during each connector sync.
+</Tip>
+
+## Group-based access control
+
+Groups let you restrict connector visibility at the Onyx level, independently of the source system's permissions.
+
+When a connector is configured with group restrictions, **only members of the specified groups** see documents from that connector in search—even if the underlying document has broader permissions.
+
+This is useful when you want to:
+
+- Limit a connector to a specific team before rolling it out broadly
+- Create department-scoped search experiences without changing source system permissions
+- Give a team their own isolated knowledge base within a shared Onyx deployment
+
+To restrict a connector to groups, select the target groups in the connector's **Access** settings when creating or editing it.
+
+## Assistant and agent visibility
+
+Assistants (also called agents or personas) have their own visibility settings, separate from document permissions.
+
+<AccordionGroup>
+  <Accordion title="Public">
+    Visible to all users in the deployment. Anyone can use the assistant from the assistant selector.
+  </Accordion>
+  <Accordion title="Private">
+    Visible only to the creator. Other users cannot discover or use the assistant.
+  </Accordion>
+  <Accordion title="Group-scoped">
+    Visible only to members of one or more specified groups. Use this to give a team a custom assistant without exposing it to the whole organization.
+  </Accordion>
+</AccordionGroup>
+
+Admins can view and manage all assistants regardless of visibility. Visibility settings are configured in the assistant editor under **Admin panel → Assistants**.
+
+## Curator role in depth
+
+The Curator role gives trusted non-admin users management capabilities scoped to specific groups.
+
+**What a Curator can do within their assigned groups:**
+- Add and configure connectors
+- Pause, resume, and delete connector syncs
+- Manage document boost and hidden status for their group's connectors
+- View indexing errors and sync status
+
+**What a Curator cannot do:**
+- Change user roles
+- Access connectors or documents outside their assigned groups
+- Modify system-level settings (LLM config, auth, etc.)
+
+A Curator is assigned per-group. A user can be a Curator in one group and a regular Basic user in another. To assign Curator status, open the group in **Admin panel → Groups**, find the user, and click **Set Curator**.
+
+## Admin vs. Global Curator
+
+<Tabs>
+  <Tab title="Admin">
+    - Full access to all groups, connectors, documents, and system settings
+    - Can promote or demote any user's role
+    - Can create, edit, and delete any group
+    - Can manage all assistants regardless of ownership
+    - Can view all query history and analytics
+  </Tab>
+  <Tab title="Global Curator">
+    - Can manage connectors and documents for any group they are a **member** of
+    - Does not need to be individually designated as Curator in each group
+    - Cannot change user roles or access system settings
+    - Cannot manage groups outside their membership
+    - Cannot view platform-wide analytics
+  </Tab>
+</Tabs>
+
+Use Global Curator for power users who need broad content management abilities but should not have full admin access.
+
+## External group sync (Enterprise Edition)
+
+Enterprise Edition supports syncing group memberships from external identity providers directly into Onyx.
+
+When external group sync is enabled:
+
+- Groups from your identity provider (e.g. Okta groups, Azure AD groups, Google Workspace groups) are automatically created and updated in Onyx.
+- User group memberships stay in sync without manual administration.
+- Document permissions tied to identity provider groups are automatically reflected in Onyx search results.
+
+External group sync runs on a background schedule. You can view the last sync time and any errors in **Admin panel → Groups**.
+
+<Warning>
+  Groups managed by external sync cannot be manually edited in Onyx. Membership changes must be made in the identity provider.
+</Warning>

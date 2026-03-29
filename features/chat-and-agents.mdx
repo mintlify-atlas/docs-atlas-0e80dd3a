@@ -1,0 +1,118 @@
+---
+title: "Chat & Agents"
+description: "Multi-turn conversations, shared chat sessions, and customizable AI assistants (personas) built on top of your connected knowledge."
+keywords: ["chat", "agents", "personas", "assistants", "conversation"]
+---
+
+Onyx's chat interface gives you a persistent, multi-turn conversation window backed by your connected knowledge sources. You can use the default assistant for general Q&A or create custom agents — called **personas** internally — that are tailored to a specific team, workflow, or domain.
+
+## Chat interface
+
+When you open a chat session, Onyx creates a `ChatSession` that tracks the full conversation tree. Each message is stored with its role (`USER`, `ASSISTANT`, `SYSTEM`, or `TOOL_CALL_RESPONSE`) so earlier context is always available for follow-up questions.
+
+Key capabilities in every chat session:
+
+- **Multi-turn context** — the conversation history is compressed automatically when it approaches the model's context window (`COMPRESSION_TRIGGER_RATIO` defaults to 75% of the available window).
+- **File uploads** — attach documents, images, or code files directly to a message. Uploaded files are parsed, chunked, and injected into context. Image files are handled separately for vision-capable models.
+- **Message feedback** — upvote or downvote any assistant response to improve future results.
+- **Regeneration** — resend a message to get a different answer, or edit a prior message to branch the conversation.
+- **Citations** — every answer that draws from indexed documents includes inline `[1]` citations linking back to the source.
+- **Streaming** — responses stream token-by-token as they are generated; tool calls surface their intermediate results in real time.
+
+<Note>
+Chat history is soft-deleted by default when you remove a session, meaning admins can still review it. Set the environment variable `HARD_DELETE_CHATS=true` to permanently remove deleted chats.
+</Note>
+
+## Sharing and collaboration
+
+Chat sessions can be shared with teammates:
+
+- **Share a link** — generate a shareable URL for any chat session. Recipients with access can read the full conversation.
+- **Team assistants** — personas marked as public and listed are visible to everyone in your organization from the assistant picker.
+- **Ownership** — each persona has an `owner` and can be restricted to specific `users` or `groups` for access control.
+
+## Agents (personas)
+
+An **agent** is a saved AI configuration — a persona — that combines a system prompt, a set of knowledge sources, a choice of LLM, and a collection of tools. Any user can start a chat with an agent the same way they start a regular chat, but the agent's configuration shapes every response.
+
+### What makes up an agent
+
+| Field | Description |
+|---|---|
+| `name` | Display name shown in the assistant picker |
+| `system_prompt` | Instructions prepended to every conversation |
+| `task_prompt` | Additional guidance appended after user messages |
+| `replace_base_system_prompt` | When `true`, the persona's prompt fully replaces the platform default |
+| `llm_model_version_override` | Pin a specific model (e.g. `gpt-4o`) for this agent only |
+| `llm_model_provider_override` | Switch to a different LLM provider for this agent |
+| `document_sets` | Document sets (groups of connectors) the agent searches |
+| `hierarchy_nodes` | Specific folders, spaces, or channels scoped for search |
+| `attached_documents` | Individual pinned documents always in context |
+| `tools` | Tools the agent can invoke (search, web, code, etc.) |
+| `starter_messages` | Suggested prompts shown to users when opening the agent |
+| `datetime_aware` | Inject the current date/time into the system prompt |
+
+### Agent capability types
+
+<CardGroup cols={2}>
+  <Card title="Knowledge agents" icon="database">
+    Scoped to specific document sets, folders, or individual files. Best for team wikis, runbooks, and domain-specific Q&A.
+  </Card>
+  <Card title="Tool-augmented agents" icon="wrench">
+    Equipped with web search, code execution, image generation, or custom tools. Best for research, data analysis, and automation.
+  </Card>
+  <Card title="LLM-specialized agents" icon="microchip">
+    Pinned to a specific model or provider — for example, using a reasoning model for complex analysis or a fast model for quick lookups.
+  </Card>
+  <Card title="Workflow agents" icon="diagram-project">
+    Combine a structured system prompt with starter messages to guide users through a repeatable workflow such as incident triage or code review.
+  </Card>
+</CardGroup>
+
+## Creating an agent
+
+<Steps>
+  <Step title="Open the Admin panel">
+    Go to **Admin → Agents** (the URL path is `/admin/agents`). You will see all existing agents with their visibility status, owner, and assigned tools.
+  </Step>
+  <Step title="Click New agent">
+    Click the **New agent** button in the top-right corner to open the creation form.
+  </Step>
+  <Step title="Set a name and instructions">
+    Give the agent a clear name and write a system prompt in the **Instructions** field. This prompt is prepended to every conversation. If you want to completely replace the platform's default instructions, enable **Replace base system prompt**.
+  </Step>
+  <Step title="Select knowledge sources">
+    Under **Knowledge**, choose one or more document sets, or drill into specific folders (hierarchy nodes) or individual documents. The agent will only search the sources you select here.
+  </Step>
+  <Step title="Choose tools">
+    Under **Tools**, toggle the capabilities you want the agent to have — for example, web search, code interpreter, or image generation. Each tool appears in a separate tab in the chat response.
+  </Step>
+  <Step title="Pick an LLM (optional)">
+    Expand **Model** to override the default LLM. You can select both a provider and a specific model version. Leave blank to use the platform default.
+  </Step>
+  <Step title="Set visibility">
+    Toggle **Public** to make the agent visible to all users. Toggle **Listed** to show it in the assistant picker. Agents that are public but not listed are accessible via direct link only.
+  </Step>
+  <Step title="Add starter messages (optional)">
+    Add 2–4 starter messages that suggest common questions. These appear as clickable prompts when a user opens the agent for the first time.
+  </Step>
+  <Step title="Save">
+    Click **Save**. The agent is immediately available to all users who have access to it.
+  </Step>
+</Steps>
+
+## Search behavior in chat
+
+By default, when you send a message Onyx runs a hybrid search (keyword + semantic) across your indexed knowledge to find the most relevant chunks. Up to `MAX_CHUNKS_FED_TO_CHAT` chunks (default: **25**) are passed to the LLM alongside your message. The hybrid weighting is controlled by `HYBRID_ALPHA` (default: **0.5**, equal weight between vector and keyword search).
+
+Recent documents receive a relevance boost. The recency decay formula is:
+
+```
+score = base_score * (1 / (1 + DOC_TIME_DECAY * doc_age_in_years))
+```
+
+`DOC_TIME_DECAY` defaults to **0.5**, which means a document two years old receives half the recency boost of a brand-new document.
+
+<Tip>
+To bias results heavily toward recent documents, set `DOC_TIME_DECAY` to a higher value such as `1.0` in your environment configuration.
+</Tip>

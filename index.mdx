@@ -1,97 +1,82 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Onyx — Open Source AI Platform"
+description: "AI Chat with advanced features that works with every LLM. Self-hostable, enterprise-ready, and open source."
 ---
 
-## Setting up
+Onyx is a feature-rich, self-hostable AI chat platform that connects to your organization's knowledge. It runs on any LLM — cloud or local — and includes Agents, RAG, Deep Research, 40+ connectors, MCP support, and enterprise security built in.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Deploy Onyx and start chatting in minutes with a single command.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand how Onyx's backend, search, and AI layers fit together.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Features" icon="sparkles" href="/features/chat-and-agents">
+    Explore Chat, Agents, RAG, Deep Research, and more.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Connectors" icon="plug" href="/features/connectors">
+    Connect Onyx to Slack, Confluence, GitHub, Google Drive, and 40+ more sources.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What Onyx can do
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Chat with any LLM" icon="message-bot">
+    Works with OpenAI, Anthropic, Gemini, Ollama, vLLM, and any LiteLLM-compatible provider.
+  </Card>
+  <Card title="RAG over your data" icon="magnifying-glass">
+    Hybrid search plus knowledge graph retrieval across millions of indexed documents.
+  </Card>
+  <Card title="Custom Agents" icon="robot">
+    Build AI Agents with custom instructions, knowledge bases, and tool access.
+  </Card>
+  <Card title="Deep Research" icon="microscope">
+    Multi-step agentic research that synthesizes answers from across your knowledge base.
+  </Card>
+  <Card title="MCP & Actions" icon="bolt">
+    Give agents the ability to act on external systems via Model Context Protocol.
+  </Card>
+  <Card title="Enterprise Security" icon="shield-halved">
+    SSO (OIDC/SAML/OAuth2), RBAC, document-level permissions, and encrypted credentials.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Get started
 
-## Need inspiration?
+<Steps>
+  <Step title="Deploy Onyx">
+    Run one command to spin up the full stack with Docker Compose. See the [Quick Start guide](/quickstart).
+  </Step>
+  <Step title="Connect your knowledge sources">
+    Add connectors to Slack, Confluence, Google Drive, GitHub, and more from the Admin panel. See [Connectors](/features/connectors).
+  </Step>
+  <Step title="Configure your LLM">
+    Point Onyx at your preferred LLM provider — cloud or self-hosted. See [LLM Providers](/configuration/llm-providers).
+  </Step>
+  <Step title="Start chatting">
+    Open the chat interface, select an assistant or create your own Agent, and start asking questions across your connected knowledge.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Deploy anywhere
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="docker" href="/deployment/docker">
+    The fastest way to get Onyx running locally or on a single server.
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/deployment/kubernetes">
+    Production-grade deployment with Helm charts for large teams.
+  </Card>
+  <Card title="Terraform" icon="cloud" href="/deployment/terraform">
+    Infrastructure-as-code deployment for teams already using Terraform.
+  </Card>
+  <Card title="Cloud Providers" icon="server" href="/deployment/cloud-providers">
+    Step-by-step guides for AWS EKS, Azure, GCP, and more.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Want to try Onyx without deploying? Check out [Onyx Cloud](https://cloud.onyx.app/signup) for a hosted version.
+</Tip>
